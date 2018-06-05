@@ -156,10 +156,18 @@ class CCTVFloodExtraction(object):
 
 if __name__ == '__main__':
 
+    #for windows
     video_file = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\videos\\180131_A_08.mp4"
     model_file = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\models\\all_flipped2_supervisely__ly4ftr16w2__"
     frames_dir = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\frames"
     pred_dir = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\predictions"
+
+
+    # #for mac os
+    # video_file = ...
+    # model_file = ...
+    # frames_dir = ...
+    # pred_dir = ...
 
     cfe = CCTVFloodExtraction(video_file, model_file, frames_dir, pred_dir)
 
