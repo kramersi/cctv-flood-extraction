@@ -7,14 +7,15 @@ from PIL import Image
 
 class CCTVFloodExtraction(object):
 
-    def __init__(self, video_dir, model_dir, frame_path):
+    def __init__(self, video_dir, model_dir, frame_dir, pred_dir):
         self.video_dir = video_dir
         self.model_dir = model_dir
         self.frame_dir = frame_dir
+        self.pred_dir = pred_dir
 
     def setup_outputfolder(self):
         # setup the output folder
-        output = self.frame_path
+        output = self.frame_dir
         path = self.video_dir
         if output is None:
             output = path[:-4]
@@ -28,33 +29,61 @@ class CCTVFloodExtraction(object):
         # video must be of following formats: mp4 | flv | ogg | webm | mkv | avi
         print('video imported')
 
-    def video2frame(self, path, skip=1, resize_dims=None, mirror=False, max_frames=10, rotate=0):
+    def video2frame(self, skip=1, resize_dims=None, mirror=False, max_frames=10, rotate=0):
+        """ extract frames out of a video
 
-        def _mirror_image(image):
-            return np.fliplr(image)
+        Args:
+            skip (int): how many frames to skip
+            resize_dims (tuple): tuple of pixel width and height. If None then original is kept
+            mirror (bool): if frames should be mirrored
+            max_frames (int): how much frames in maximumn
+            rotate (int): how many degree frames should be rotated. One of 0, 90, 180 or 270
 
-        video_object = cv2.VideoCapture(path)
+        """
+        video_object = cv2.VideoCapture(self.video_dir)
         output = self.setup_outputfolder()
         index = 0
         last_mirrored = True
+
+        frame_count = video_object.get(cv2.CAP_PROP_FRAME_COUNT)
+
+        skipDelta = 0
+        if max_frames and frame_count > max_frames:
+            skipDelta = frame_count / max_frames
+
         while True:
             success, frame = video_object.read()
             if success:
                 if index % skip == 0:
 
+                    # resize frames
                     if resize_dims is not None:
                         frame = cv2.resize(frame, resize_dims, interpolation=cv2.INTER_CUBIC)
 
+                    # mirror frames
                     if mirror and last_mirrored:
-                        frame = _mirror_image(frame)
+                        frame = np.fliplr(frame)
                     last_mirrored = not last_mirrored
 
-                    cv2.imwrite(output + "_" + str(datetime.now()) + ".jpg",
-                                frame)  # assumes that the extension is three letters long
+                    # Rotate if needed:
+                    if rotate > 0:
+                        if rotate == 90:
+                            frame = cv2.transpose(frame)
+                            frame = cv2.flip(frame, 1)
+                        elif rotate == 180:
+                            frame = cv2.flip(frame, -1)
+                        elif rotate == 270:
+                            frame = cv2.transpose(frame)
+                            frame = cv2.flip(frame, 0)
+
+                    # write images to output file
+                    cv2.imwrite(output + "_" + str(index) + ".jpg", frame)
             else:
                 break
 
-            index += 1
+            index += int(1 + skipDelta)
+            video_object.set(cv2.CAP_PROP_POS_FRAMES, index)
+
         print('frame extracted from video')
 
     def load_model(self, model_type='tensorflow', n_class=2):
@@ -127,7 +156,11 @@ class CCTVFloodExtraction(object):
 
 if __name__ == '__main__':
 
-    cfe = CCTVFloodExtraction('./videos', './models', '/frames')
+    video_file = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\videos\\180131_A_08.mp4"
+    model_file = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\models\\all_flipped2_supervisely__ly4ftr16w2__"
+    frames_dir = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\frames"
+    pred_dir = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\predictions"
 
-    cfe.import_video()
+    cfe = CCTVFloodExtraction(video_file, model_file, frames_dir, pred_dir)
+
     cfe.video2frame()
