@@ -1,8 +1,6 @@
 import cv2
 import os
-from datetime import datetime
 import numpy as np
-from PIL import Image
 
 
 class CCTVFloodExtraction(object):
@@ -22,7 +20,7 @@ class CCTVFloodExtraction(object):
         else:
             if not output.endswith('/') and not output.endswith('\\'):
                 output += '/'
-            output += 'py_image'
+            output += os.paht.splitext(self.video_dir)[-1].split('.')[-1]
         return output
 
     def import_video(self):
@@ -100,7 +98,8 @@ class CCTVFloodExtraction(object):
 
         """
         def load_image(path, dtype=np.float32):
-            data = np.array(Image.open(path), dtype)
+            data = np.array(cv2.imread(path), dtype)
+            # data = np.array(Image.open(path), dtype)
             # normalization
             data -= np.amin(data)
             data /= np.amax(data)
@@ -108,17 +107,16 @@ class CCTVFloodExtraction(object):
 
         if model_type == 'tensorflow':
             import tensorflow as tf
-            tensor_node_op = 'example:0'
-            tensor_node_x = 'x:0'
-            tensor_node_y = 'y:0'
-            tensor_node_prob = 'z:0'
 
-            node_names = [tensor.name for tensor in tf.get_default_graph().as_graph_def().node]
-            print(node_names)
+            tensor_node_op = 'Assign_1999:0'
+            tensor_node_x = 'Placeholder:0'
+            tensor_node_y = 'Placeholder_1:0'
+            tensor_node_prob = 'Placeholder_2:0'
+            meta_file = '/model.cpkt.meta'
 
             with tf.Session() as sess:
-                saver = tf.train.import_meta_graph('my-model-1000.meta')
-                saver.restore(sess, self.model_dir)
+                saver = tf.train.import_meta_graph(self.model_dir + meta_file)
+                saver.restore(sess, tf.train.latest_checkpoint(self.model_dir))
                 print("Model restored from file: %s" % self.model_dir)
 
                 #x = tf.placeholder("float", shape=[None, None, None, channels])
@@ -127,6 +125,9 @@ class CCTVFloodExtraction(object):
 
                 # get the graph in the current thread
                 graph = tf.get_default_graph()
+
+                node_names = [tensor.name for tensor in graph.as_graph_def().node]
+                print(node_names)
 
                 # access the input key words for feed_dict
                 x = graph.get_tensor_by_name(tensor_node_x)
@@ -137,13 +138,17 @@ class CCTVFloodExtraction(object):
                 restored_op = graph.get_tensor_by_name(tensor_node_op)
 
                 # loop through files and save predictions
-                for image in os.listdir(self.images_dir):
-                    x = load_image(os.path.join(self.images_dir, image))
+                for image in os.listdir(self.frame_dir):
+                    x = load_image(os.path.join(self.frame_dir, image))
                     y_dummy = np.empty((x.shape[0], x.shape[1], x.shape[2], n_class))
-                    prediction = sess.run(restored_op, feed_dict={x: x, y: y_dummy, keep_prob: 1.})[0]
+                    print(restored_op)
+                    print('x', x)
+                    print('y', y_dummy)
+                    print('keep_prob', keep_prob)
+                    prediction = sess.run(graph, feed_dict={x: x, y: y_dummy, keep_prob: 1.})[0]
+                    pred_processed = (prediction * 200).astype(np.uint8)
+                    cv2.imwrite(os.paht.join(self.output_dir, os.path.splitext(image)[0] + '.png'), pred_processed)
 
-                    img = Image.fromarray((prediction * 200).astype(np.uint8))
-                    img.save(os.path.join(self.output_dir, os.path.splitext(image)[0] + '.png'))
 
             if model_type == 'keras':
                 print('not implemented')
@@ -155,20 +160,19 @@ class CCTVFloodExtraction(object):
 
 
 if __name__ == '__main__':
+    # for apple
+    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
 
-    #for windows
-    video_file = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\videos\\180131_A_08.mp4"
-    model_file = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\models\\all_flipped2_supervisely__ly4ftr16w2__"
-    frames_dir = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\frames"
-    pred_dir = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\predictions"
+    # for windows
+    # file_base = "C:\\Users\kramersi\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\videos\\
 
-
-    # #for mac os
-    # video_file = ...
-    # model_file = ...
-    # frames_dir = ...
-    # pred_dir = ...
+    video_file = file_base + 'videos/180131_A_08.mp4'
+    model_file = file_base + 'models/all_flipped2_supervisely__ly4ftr16w2__'
+    frames_dir = file_base + 'frames'
+    pred_dir = file_base + 'predictions'
 
     cfe = CCTVFloodExtraction(video_file, model_file, frames_dir, pred_dir)
 
-    cfe.video2frame()
+    #cfe.video2frame()
+    cfe.load_model()
+    #cfe.flood_extraction()
