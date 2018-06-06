@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import re
 
 class CCTVFloodExtraction(object):
 
@@ -31,7 +31,7 @@ class CCTVFloodExtraction(object):
 
         # if directory not existing create directory
         if not os.path.exists(output):
-            print('made new directory: ', output)
+            print('created new directory: ', output)
             os.makedirs(output)
 
         return output
@@ -78,7 +78,6 @@ class CCTVFloodExtraction(object):
 
             while True:
                 success, frame = video_object.read()  # extract frames
-                print('succ', success)
                 if success:
                     if index % skip == 0:
 
@@ -103,7 +102,6 @@ class CCTVFloodExtraction(object):
                                 frame = cv2.flip(frame, 0)
 
                         # write images to output file
-                        print('framd_dir', self.frame_dir)
                         frame_fp = os.path.join(self.frame_dir, 'frame_' + str(index) + '.png')
                         cv2.imwrite(frame_fp, frame)
                 else:
@@ -136,7 +134,7 @@ class CCTVFloodExtraction(object):
             return data
 
         if os.path.isdir(self.pred_dir):
-            print('Picture from this movie already extracted in that directory.')
+            print('Pictures already predicted with that model')
         else:
             print('created new directory ', self.pred_dir)
             os.makedirs(self.pred_dir)
@@ -183,7 +181,6 @@ class CCTVFloodExtraction(object):
 
                         # create image file in prediction folder
                         image_name = self.model_name + '__' + os.path.splitext(image)[0] + '.png'
-                        print('filestore', os.path.join(self.pred_dir, image_name))
                         cv2.imwrite(os.path.join(self.pred_dir, image_name), pred_processed)
 
                     writer.add_graph(graph)  # add graph to tensorboard
@@ -206,9 +203,14 @@ class CCTVFloodExtraction(object):
 
         # if predictions are stored in variable then directly otherwise load predictions from pngs
         if len(self.predictions) > 0:
-            predictions = self.predcitions
+            predictions = self.predictions
         else:
-            predictions = [cv2.imread(file) for file in sorted(os.listdir(os.path.join(self.pred_dir, self.model_name)))]
+            # natural sort the files in directory
+            f_names = os.listdir(self.pred_dir)
+            f_names.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+            predictions = [cv2.imread(os.path.join(self.pred_dir, file)) for file in f_names]
+            predprint = [file for file in f_names]
+            print(predprint)
 
         # iterate over each predicted frame, crop image and calculate flood index
         flood_index = []
@@ -221,10 +223,14 @@ class CCTVFloodExtraction(object):
         data.to_csv(signal_file_path)
 
         # plot flood_index and store it.
-        plt.figure(0)
+        plt.figure(1)
         data.plot()
+        plt.xlabel('index (#)')
+        plt.ylabel('flood index (-)')
+        plt.show()
         plt.savefig(plot_file_path)
         print('flood signal extracted')
+
 
 if __name__ == '__main__':
     # for apple
@@ -233,13 +239,13 @@ if __name__ == '__main__':
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
 
-    video_file = file_base + 'videos\\elliotCityFlood.mp4'
+    video_file = file_base + 'videos\\ChaskaAthleticPark.mp4'
     model_file = file_base + 'models\\unet_2400'
     video_url = 'https://youtu.be/nrGBtQhAvo8'
+
     cfe = CCTVFloodExtraction(video_file, model_file)
 
     #cfe.import_video(video_url)
-    #cfe.video2frame(resize_dims=(640, 360), max_frames=50)
-
+    cfe.video2frame(resize_dims=(640, 360), max_frames=77)
     cfe.load_model()
-    #cfe.flood_extraction()
+    cfe.flood_extraction()
