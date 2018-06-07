@@ -5,29 +5,33 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import re
 
+
 class CCTVFloodExtraction(object):
 
-    def __init__(self, video_file, model_dir, frame_dir=None, pred_dir=None, signal_dir=None):
+    cr_win = dict(top=0, left=0, width=640, height=360)
+
+    def __init__(self, video_file, model_dir, frame_dir=None, pred_dir=None, signal_dir=None, crop_window=cr_win):
         self.video_file = video_file
         self.model_dir = model_dir
-        self.frame_dir = self.check_create_folder(frame_dir, 'frames')
-        self.pred_dir = self.check_create_folder(pred_dir, 'predictions')
-        self.signal_dir = self.check_create_folder(signal_dir, 'signal')
 
         self.model_name = os.path.splitext(os.path.basename(self.model_dir))[0]
         self.video_name = os.path.splitext(os.path.basename(self.video_file))[0]
 
+        self.frame_dir = self.check_create_folder(frame_dir, 'frames', self.video_name)
+        self.pred_dir = self.check_create_folder(pred_dir, 'predictions', self.video_name)
+        self.signal_dir = self.check_create_folder(signal_dir, 'signal')
+
         self.predictions = []
+        self.crop_window = crop_window
 
-        self.frame_dir = os.path.join(self.frame_dir, self.video_name)
-        self.pred_dir = os.path.join(self.pred_dir, self.video_name)
-
-    def check_create_folder(self, output, folder_name):
+    def check_create_folder(self, output, *folder_names):
         path = self.video_file
 
-        # if none then create diectory on same level as video directory with the folder_name
+        # if none then create diectory on same level as video directory with the folder_name and video name
         if output is None:
-            output = os.path.abspath(os.path.join(os.path.dirname(path), os.pardir, folder_name))
+            output = os.path.abspath(os.path.join(os.path.dirname(path), os.pardir, *folder_names))
+        else:
+            output = os.path.join(output, self.video_name)
 
         # if directory not existing create directory
         if not os.path.exists(output):
@@ -72,9 +76,9 @@ class CCTVFloodExtraction(object):
 
             frame_count = video_object.get(cv2.CAP_PROP_FRAME_COUNT)
 
-            skipDelta = 0
+            skip_delta = 0
             if max_frames and frame_count > max_frames:
-                skipDelta = frame_count / max_frames
+                skip_delta = frame_count / max_frames
 
             while True:
                 success, frame = video_object.read()  # extract frames
@@ -107,12 +111,12 @@ class CCTVFloodExtraction(object):
                 else:
                     break
 
-                index += int(1 + skipDelta)
+                index += int(1 + skip_delta)
                 video_object.set(cv2.CAP_PROP_POS_FRAMES, index)
 
             print('frame extracted from video')
 
-    def load_model(self, model_type='tensorflow', n_class=2):
+    def load_model(self, model_type='tensorflow'):
         """ loads neural network model of different types.
 
         The pretrained model must have following specifications:
@@ -144,7 +148,6 @@ class CCTVFloodExtraction(object):
 
                 tensor_node_op = 'ArgMax:0'  # 'div_1:0'  # 'truediv_21:0'
                 tensor_node_x = 'Placeholder:0'
-                tensor_node_y = 'Placeholder_1:0'
                 tensor_node_prob = 'Placeholder_2:0'
                 meta_file = '/model.cpkt.meta'
 
@@ -190,7 +193,7 @@ class CCTVFloodExtraction(object):
 
             print('model loaded and images predicted')
 
-    def flood_extraction(self, top=0, left=0, width=640, height=360, threshold=200):
+    def flood_extraction(self, threshold=200):
         """ extract a flood index out of detected pixels in the frames
 
         """
@@ -201,6 +204,12 @@ class CCTVFloodExtraction(object):
         signal_file_path = os.path.join(self.signal_dir, signal_name)
         plot_file_path = os.path.join(self.signal_dir, plot_name)
 
+        # define crop window
+        top = self.crop_window['top']
+        left = self.crop_window['left']
+        height = self.crop_window['height']
+        width = self.crop_window['width']
+
         # if predictions are stored in variable then directly otherwise load predictions from pngs
         if len(self.predictions) > 0:
             predictions = self.predictions
@@ -210,7 +219,6 @@ class CCTVFloodExtraction(object):
             f_names.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
             predictions = [cv2.imread(os.path.join(self.pred_dir, file)) for file in f_names]
             predprint = [file for file in f_names]
-            print(predprint)
 
         # iterate over each predicted frame, crop image and calculate flood index
         flood_index = []
@@ -223,7 +231,6 @@ class CCTVFloodExtraction(object):
         data.to_csv(signal_file_path)
 
         # plot flood_index and store it.
-        plt.figure(1)
         data.plot()
         plt.xlabel('index (#)')
         plt.ylabel('flood index (-)')
@@ -234,18 +241,18 @@ class CCTVFloodExtraction(object):
 
 if __name__ == '__main__':
     # for apple
-    #file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
+    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
-    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
+    # file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
 
-    video_file = file_base + 'videos\\ChaskaAthleticPark.mp4'
-    model_file = file_base + 'models\\unet_2400'
+    video_file = file_base + 'videos/sydneyTrainStation.webm'
+    model_file = file_base + 'models/unet_2400'
     video_url = 'https://youtu.be/nrGBtQhAvo8'
 
     cfe = CCTVFloodExtraction(video_file, model_file)
 
-    #cfe.import_video(video_url)
+    # cfe.import_video(video_url)
     cfe.video2frame(resize_dims=(640, 360), max_frames=77)
     cfe.load_model()
-    cfe.flood_extraction()
+    cfe.flood_extraction(threshold=200)
