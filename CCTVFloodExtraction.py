@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import re
 
+from tf_unet import unet, util, image_util
+import os
 
 class CCTVFloodExtraction(object):
 
@@ -238,16 +240,53 @@ class CCTVFloodExtraction(object):
         plt.savefig(plot_file_path)
         print('flood signal extracted')
 
+    def train_unet(self, n_class, input_path_train, output_path):
+        # defining paths
+        input_path_train = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
+        output_path = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
+        n_class = 8
+
+        # Training
+        # preparing data loading
+        data_provider = image_util.ImageDataProvider(input_path_train + '*.png', data_suffix=".png", mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
+
+        # setup & training
+        net = unet.Unet(layers=5, features_root=64, channels=3, n_class=n_class)
+        trainer = unet.Trainer(net, batch_size=1, norm_grads=False, optimizer="adam")
+        path = trainer.train(data_provider, output_path, training_iters=32, epochs=1)
+
+        return path
+
+    def test_unet(self, n_class, input_path_test, test_path, model_path):
+        # prediction
+        n_class = 8
+        input_path_test = "E:\\watson_for_trend\\3_select_for_labelling\\test_cityscape\\"
+        test_path = "E:\\watson_for_trend\\6_test\\cityscape_l5f64c3n8e20\\"
+
+        net = unet.Unet(layers=5, features_root=64, channels=3, n_class=n_class)
+        data_provider = image_util.ImageDataProvider(input_path_test + '*.png', data_suffix=".png",
+                                                     mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
+
+        # loop through files
+        for file in data_provider.data_files:
+            x, [y] = data_provider(1)
+
+            prediction = net.predict(os.path.join(model_path, 'model.ckpt'), x)
+
+            unet.error_rate(prediction, util.crop_to_shape(y, prediction.shape))
+
+            util.create_overlay(prediction, util.crop_to_shape(x, prediction.shape), os.path.basename(file), test_path)
+
 
 if __name__ == '__main__':
     # for apple
-    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
+    #file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
-    # file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
+    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
 
-    video_file = file_base + 'videos/sydneyTrainStation.webm'
-    model_file = file_base + 'models/unet_2400'
+    video_file = file_base + 'videos\\sydneyTrainStation.webm'
+    model_file = file_base + 'models\\unet_2400'
     video_url = 'https://youtu.be/nrGBtQhAvo8'
 
     cfe = CCTVFloodExtraction(video_file, model_file)
@@ -256,3 +295,7 @@ if __name__ == '__main__':
     cfe.video2frame(resize_dims=(640, 360), max_frames=77)
     cfe.load_model()
     cfe.flood_extraction(threshold=200)
+
+    #training and testing of unet
+    cfe.train_unet()
+    cfe.test_unet()
