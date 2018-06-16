@@ -6,13 +6,14 @@ import matplotlib.pyplot as plt
 import re
 
 from tf_unet import unet, util, image_util
-import os
+
 
 class CCTVFloodExtraction(object):
 
     cr_win = dict(top=0, left=0, width=640, height=360)
 
     def __init__(self, video_file, model_dir, frame_dir=None, pred_dir=None, signal_dir=None, crop_window=cr_win):
+
         self.video_file = video_file
         self.model_dir = model_dir
 
@@ -22,6 +23,7 @@ class CCTVFloodExtraction(object):
         self.frame_dir = self.check_create_folder(frame_dir, 'frames', self.video_name)
         self.pred_dir = self.check_create_folder(pred_dir, 'predictions', self.video_name)
         self.signal_dir = self.check_create_folder(signal_dir, 'signal')
+
 
         self.predictions = []
         self.crop_window = crop_window
@@ -240,47 +242,52 @@ class CCTVFloodExtraction(object):
         plt.savefig(plot_file_path)
         print('flood signal extracted')
 
-    def train_unet(self, n_class, input_path_train, output_path):
-        # defining paths
-        input_path_train = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
-        output_path = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
-        n_class = 8
+    def train_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1, training_iters=10,
+                   epochs=20):
+        """ trains a unet instance with n_classes. Other hyperparameters have to be tuned in the code.
 
-        # Training
+            example of defining paths
+            train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
+            model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
+
+        """
         # preparing data loading
-        data_provider = image_util.ImageDataProvider(input_path_train + '*.png', data_suffix=".png", mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
+        data_provider = image_util.ImageDataProvider(train_dir + '*.png', data_suffix=".png", mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
 
         # setup & training
-        net = unet.Unet(layers=5, features_root=64, channels=3, n_class=n_class)
-        trainer = unet.Trainer(net, batch_size=1, norm_grads=False, optimizer="adam")
-        path = trainer.train(data_provider, output_path, training_iters=32, epochs=1)
+        net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class)
+        trainer = unet.Trainer(net, batch_size=batch_size, norm_grads=False, optimizer="adam")
+        path = trainer.train(data_provider, self.model_dir, training_iters=training_iters, epochs=epochs)
 
         return path
 
-    def test_unet(self, n_class, input_path_test, test_path, model_path):
-        # prediction
-        n_class = 8
-        input_path_test = "E:\\watson_for_trend\\3_select_for_labelling\\test_cityscape\\"
-        test_path = "E:\\watson_for_trend\\6_test\\cityscape_l5f64c3n8e20\\"
+    def test_unet(self, test_img_dir, layers=4, features_root=64, channels=3, n_class=3):
+        """ makes test prediction after U-Net is trained.
 
-        net = unet.Unet(layers=5, features_root=64, channels=3, n_class=n_class)
-        data_provider = image_util.ImageDataProvider(input_path_test + '*.png', data_suffix=".png",
+        Examples of paths
+        test_img_dir = "E:\\watson_for_trend\\3_select_for_labelling\\test_cityscape\\"
+        test_pred_dir = "E:\\watson_for_trend\\6_test\\cityscape_l5f64c3n8e20\\"
+
+        """
+        # prediction
+        net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class)
+        data_provider = image_util.ImageDataProvider(test_img_dir + '*.png', data_suffix=".png",
                                                      mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
 
         # loop through files
         for file in data_provider.data_files:
             x, [y] = data_provider(1)
 
-            prediction = net.predict(os.path.join(model_path, 'model.ckpt'), x)
+            prediction = net.predict(os.path.join(self.model_dir, 'model.ckpt'), x)
 
             unet.error_rate(prediction, util.crop_to_shape(y, prediction.shape))
 
-            util.create_overlay(prediction, util.crop_to_shape(x, prediction.shape), os.path.basename(file), test_path)
+            util.create_overlay(prediction, util.crop_to_shape(x, prediction.shape), os.path.basename(file), self.pred_dir)
 
 
 if __name__ == '__main__':
     # for apple
-    #file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
+    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
@@ -288,6 +295,8 @@ if __name__ == '__main__':
     video_file = file_base + 'videos\\sydneyTrainStation.webm'
     model_file = file_base + 'models\\unet_2400'
     video_url = 'https://youtu.be/nrGBtQhAvo8'
+    train_dir = file_base + 'train/cityscape'
+    img_pred_dir = file_base + 'test/cityscape'
 
     cfe = CCTVFloodExtraction(video_file, model_file)
 
@@ -297,5 +306,5 @@ if __name__ == '__main__':
     cfe.flood_extraction(threshold=200)
 
     #training and testing of unet
-    cfe.train_unet()
-    cfe.test_unet()
+    cfe.train_unet(train_dir, n_class=8, layers=5, batch_size=8, training_iters=10, epochs=2)
+    cfe.test_unet(img_pred_dir, n_class=8, layers=5)
