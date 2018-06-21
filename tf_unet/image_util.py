@@ -20,6 +20,7 @@ from __future__ import print_function, division, absolute_import, unicode_litera
 import glob
 import numpy as np
 from PIL import Image
+from imgaug import augmenters as iaa
 
 class BaseDataProvider(object):
     """
@@ -68,6 +69,9 @@ class BaseDataProvider(object):
         return one_hot
     
     def _process_data(self, data):
+        # chanel wise mean extraction
+
+
         # normalization
         data = np.clip(np.fabs(data), self.a_min, self.a_max)
         data -= np.amin(data)
@@ -81,6 +85,7 @@ class BaseDataProvider(object):
         :param data: the data array
         :param labels: the label array
         """
+
         return data, labels
     
     def __call__(self, n):
@@ -150,14 +155,16 @@ class ImageDataProvider(BaseDataProvider):
     
     """
     
-    def __init__(self, search_path, a_min=None, a_max=None, data_suffix=".tif", mask_suffix='_mask.tif', shuffle_data=True, n_class = 2):
+    def __init__(self, search_path, a_min=None, a_max=None, data_suffix='.tif', mask_suffix='_mask.tif',
+                 shuffle_data=True, n_class=2, channel_mean=None, channel_stdev=None):
         super(ImageDataProvider, self).__init__(a_min, a_max)
         self.data_suffix = data_suffix
         self.mask_suffix = mask_suffix
         self.file_idx = -1
         self.shuffle_data = shuffle_data
         self.n_class = n_class
-        
+        self.channel_mean = channel_mean
+        self.channel_stdev = channel_stdev
         self.data_files = self._find_data_files(search_path)
         
         if self.shuffle_data:
@@ -191,5 +198,23 @@ class ImageDataProvider(BaseDataProvider):
         
         img = self._load_file(image_name, np.float32)
         label = self._load_file(label_name, np.int8)
-    
         return img, label
+
+    def _post_process(self, data, labels):
+        seq = iaa.Sequential([
+            iaa.Fliplr(1),  # horizontally flip 50% of the images
+            iaa.GaussianBlur(sigma=(1.0, 2.0))  # blur images with a sigma of 0 to 3.0
+        ])
+        data_augmented = seq.augment_images(data)
+
+        return data, labels
+
+    def _process_data(self, data):
+        # chanel wise mean extraction
+        data -= self.channel_mean
+        data /= self.channel_stdev
+        # # normalization
+        # data = np.clip(np.fabs(data), self.a_min, self.a_max)
+        # data -= np.amin(data)
+        # data /= np.amax(data)
+        return data

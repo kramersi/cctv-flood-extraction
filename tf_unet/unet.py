@@ -209,9 +209,15 @@ class Unet(object):
         class_weights: weights for the different classes in case of multi-class imbalance
         regularizer: power of the L2 regularizers added to the loss function
         """
+        ignore_bg = cost_kwargs.pop("ignore_bg", False)
 
-        flat_logits = tf.reshape(logits, [-1, self.n_class])
-        flat_labels = tf.reshape(self.y, [-1, self.n_class])
+        if ignore_bg is True:
+            flat_logits = tf.reshape(logits, [-1, self.n_class])[:, 1:self.n_class]
+            flat_labels = tf.reshape(self.y, [-1, self.n_class])[:, 1:self.n_class]
+        else:
+            flat_logits = tf.reshape(logits, [-1, self.n_class])
+            flat_labels = tf.reshape(self.y, [-1, self.n_class])
+
         if cost_name == "cross_entropy":
             class_weights = cost_kwargs.pop("class_weights", None)
 

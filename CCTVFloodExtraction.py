@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import re
 
 from tf_unet import unet, util, image_util
-
+from keras_unet import k_unet
 
 class CCTVFloodExtraction(object):
 
@@ -242,9 +242,10 @@ class CCTVFloodExtraction(object):
         plt.savefig(plot_file_path)
         print('flood signal extracted')
 
-    def train_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1, training_iters=10,
-                   epochs=20):
-        """ trains a unet instance with n_classes. Other hyperparameters have to be tuned in the code.
+    def train_k_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1,
+                      training_iters=10,
+                      epochs=20, cost="cross_entropy", cost_kwargs={}):
+        """ trains a unet instance on keras.
 
             example of defining paths
             train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
@@ -252,16 +253,32 @@ class CCTVFloodExtraction(object):
 
         """
         # preparing data loading
-        data_provider = image_util.ImageDataProvider(train_dir + '*.png', data_suffix=".png", mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
+
+    def train_tf_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1, training_iters=10,
+                   epochs=20, cost="cross_entropy", cost_kwargs={}):
+        """ trains a unet instance with n_classes. Other hyperparameters have to be tuned in the code.
+
+            example of defining paths
+            train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
+            model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
+
+        """
+
+        # preparing data loading
+        files = os.path.join(train_dir, '*.png')
+        img_mean, img_stdev = util.calc_mean_stdev(files, mask_suffix='label.png')
+
+        data_provider = image_util.ImageDataProvider(files, data_suffix=".png", mask_suffix='_label.png',
+                                                     shuffle_data=True, n_class=n_class, channel_mean=img_mean, channel_stdev=img_stdev)
 
         # setup & training
-        net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class)
+        net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class, cost=cost, cost_kwargs=cost_kwargs)
         trainer = unet.Trainer(net, batch_size=batch_size, norm_grads=False, optimizer="adam")
         path = trainer.train(data_provider, self.model_dir, training_iters=training_iters, epochs=epochs)
 
         return path
 
-    def test_unet(self, test_img_dir, layers=4, features_root=64, channels=3, n_class=3):
+    def test_tf_unet(self, test_img_dir, layers=4, features_root=64, channels=3, n_class=3):
         """ makes test prediction after U-Net is trained.
 
         Examples of paths
@@ -271,7 +288,8 @@ class CCTVFloodExtraction(object):
         """
         # prediction
         net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class)
-        data_provider = image_util.ImageDataProvider(test_img_dir + '*.png', data_suffix=".png",
+        files = os.path.join(test_img_dir, '*.png')
+        data_provider = image_util.ImageDataProvider(files, data_suffix=".png",
                                                      mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
 
         # loop through files
@@ -287,24 +305,79 @@ class CCTVFloodExtraction(object):
 
 if __name__ == '__main__':
     # for apple
-    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/ImageSegmentation/structure_vidFloodExt/'
+    #file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
-    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\ImageSegmentation\\structure_vidFloodExt\\'
+    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
 
-    video_file = file_base + 'videos\\sydneyTrainStation.webm'
-    model_file = file_base + 'models\\unet_2400'
+    video_file = os.path.join(file_base, 'videos', 'sydneyTrainStation.webm')
+    model_file = os.path.join(file_base, 'models', 'unet_c8l4b3t100e50f32_10')
+    model_file51 = os.path.join(file_base, 'models', 'unet_c5l4b3t100e40f128_flood')
+    model_file52 = os.path.join(file_base, 'models', 'unet_c5l5b3t100e40f64_flood')
+    model_file21 = os.path.join(file_base, 'models', 'unet_c2l4b3t100e40f128_flood')
+    model_file22 = os.path.join(file_base, 'models', 'unet_c2l5b3t100e40f64_flood')
+    model_file22 = os.path.join(file_base, 'models', 'unet_testc2l4_flood')
+    model_file_comb = os.path.join(file_base, 'models', 'unet_c5l4b3t100e40f128_comb')
     video_url = 'https://youtu.be/nrGBtQhAvo8'
-    train_dir = file_base + 'train/cityscape'
-    img_pred_dir = file_base + 'test/cityscape'
+    pred_dir = os.path.join(file_base, 'predictions', 'cityscape_c8l4b3t100e5f64')
+    #train_dir = os.path.join(file_base, 'train', 'cityscape')
+    train_dir = 'E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape'
+    train_dir5 = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_5class\\images'
+    train_dir2 = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\images'
+    train_dir_comb = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__combine5class\\images'
+    train_dir_test = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
 
-    cfe = CCTVFloodExtraction(video_file, model_file)
+    img_pred_dir = os.path.join(file_base, 'train', 'cityscape')
 
+    cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir)
+
+    # importing video and model and do flood extraction
     # cfe.import_video(video_url)
-    cfe.video2frame(resize_dims=(640, 360), max_frames=77)
-    cfe.load_model()
-    cfe.flood_extraction(threshold=200)
+    # cfe.video2frame(resize_dims=(640, 360), max_frames=77)
+    # cfe.load_model()
+    # cfe.flood_extraction(threshold=200)
 
-    #training and testing of unet
-    cfe.train_unet(train_dir, n_class=8, layers=5, batch_size=8, training_iters=10, epochs=2)
-    cfe.test_unet(img_pred_dir, n_class=8, layers=5)
+    # training and testing of unet
+    # cfe51 = CCTVFloodExtraction(video_file, model_file51)
+    # cfe51.train_unet(train_dir5, n_class=5, layers=4, features_root=128, batch_size=2, training_iters=100, epochs=40,
+    #               cost='cross_entropy')
+    #
+    # cfe52 = CCTVFloodExtraction(video_file, model_file52)
+    # cfe52.train_unet(train_dir5, n_class=5, layers=5, features_root=64, batch_size=2, training_iters=100, epochs=40,
+    #               cost='cross_entropy')
+    #
+    # cfe21 = CCTVFloodExtraction(video_file, model_file21)
+    # cfe21.train_unet(train_dir2, n_class=2, layers=4, features_root=128, batch_size=2, training_iters=100, epochs=40,
+    #               cost='cross_entropy')
+    #
+    # cfe22 = CCTVFloodExtraction(video_file, model_file22)
+    # cfe22.train_unet(train_dir2, n_class=2, layers=5, features_root=64, batch_size=2, training_iters=100, epochs=40,
+    #               cost='cross_entropy')
+
+    cfe_test = CCTVFloodExtraction(video_file, model_file22)
+    cfe_test.train_tf_unet(train_dir_test, n_class=2, layers=5, features_root=64, batch_size=2, training_iters=100, epochs=40,
+                  cost='cross_entropy')
+
+    # cfecomb = CCTVFloodExtraction(video_file, model_file_comb)
+    # cfecomb.train_unet(train_dir_comb, n_class=5, layers=4, features_root=128, batch_size=4, training_iters=100, epochs=40,
+    #               cost='cross_entropy', cost_kwargs={'ignore_bg': True})
+
+    #cfe.test_unet(img_pred_dir, n_class=8, layers=4)
+
+    # # move pictures from supervisely export
+    # src_h = "C:\\Users\\kramersi\\Downloads\\5_mask_cityscape\\City*\\masks_human\\*.png"
+    # dst_h = "E:\\watson_for_trend\\3_select_for_labelling\\dataset__cityscape_5class\\human\\"
+    #
+    # src_img = "C:\\Users\\kramersi\\Downloads\\5_mask_cityscape\\*\\img\\*.png"
+    # dst_img = "E:\\watson_for_trend\\3_select_for_labelling\\dataset__cityscape_5class\\images\\"
+    #
+    # src_la = "C:\\Users\\kramersi\\Downloads\\5_mask_cityscape\\*\\masks_machine\\*.png"
+    # dst_la = "E:\\watson_for_trend\\3_select_for_labelling\\dataset__cityscape_5class\\labels\\"
+    #
+    # util.move_pics(src_h, dst_h)
+    # util.move_pics(src_img, dst_img)
+    # util.move_pics(src_la, dst_la)
+    # util.rename_pics(dst_la + '*')
+
+
+

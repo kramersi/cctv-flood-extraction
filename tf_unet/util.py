@@ -25,6 +25,7 @@ import os
 import glob
 import shutil
 
+
 def plot_prediction(x_test, y_test, prediction, save=False):
     import matplotlib
     import matplotlib.pyplot as plt
@@ -58,6 +59,7 @@ def plot_prediction(x_test, y_test, prediction, save=False):
         fig.show()
         plt.show()
 
+
 def to_rgb(img):
     """
     Converts the given array into a RGB image. If the number of channels is not
@@ -79,6 +81,7 @@ def to_rgb(img):
     img *= 255
     return img
 
+
 def crop_to_shape(data, shape):
     """
     Crops the array to the given image shape by removing the border (expects a tensor of shape [batches, nx, ny, channels].
@@ -89,6 +92,7 @@ def crop_to_shape(data, shape):
     offset0 = (data.shape[1] - shape[1])//2
     offset1 = (data.shape[2] - shape[2])//2
     return data[:, offset0:(-offset0), offset1:(-offset1)]
+
 
 # function defined myself
 def create_overlay(prediction, image, name, output_dir):
@@ -112,6 +116,7 @@ def create_overlay(prediction, image, name, output_dir):
     cv2.imwrite(os.path.join(output_dir, os.path.splitext(name)[0] + '.png'),
                 cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
 
+
 def combine_img_prediction(data, gt, pred):
     """
     Combines the data, grouth thruth and the prediction into one rgb image
@@ -128,6 +133,33 @@ def combine_img_prediction(data, gt, pred):
                           to_rgb(crop_to_shape(gt[..., 1], pred.shape).reshape(-1, ny, 1)), 
                           to_rgb(pred[..., 1].reshape(-1, ny, 1))), axis=1)
     return img
+
+
+def calc_mean_stdev(img_path, mask_suffix='_label.png'):
+    """ calculates the chanel wise mean and standard deviation of all pictures in that path ending with a number.
+
+    Args:
+        img_path (str): path with glob regex where pictures are located.
+        mask_suffix (str): suffix of pictures in the folder who are just mask and shouldn't be considered
+
+    Returns:
+        mean (ndarray): vector with mean value for each channel (rgb-order)
+        std (ndarray): vector with std dev value for each channel (rgb-order)
+
+    """
+    m_all = np.zeros(3)
+    s_all = np.zeros(3)
+
+    for file in [f for f in glob.glob(img_path) if not f.endswith(mask_suffix)]:
+        print('name', file)
+        img = cv2.imread(file, 1)
+
+        m, s = cv2.meanStdDev(img)
+        m_all = np.column_stack((m_all, m))
+        s_all = np.column_stack((s_all, s))
+
+    return np.mean(m_all, axis=1)[::-1], np.mean(s_all, axis=1)[::-1]
+
 
 def save_image(img, path):
     """
