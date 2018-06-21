@@ -20,6 +20,8 @@ author: jakeret
 from __future__ import print_function, division, absolute_import, unicode_literals
 
 import tensorflow as tf
+from keras.layers import BatchNormalization
+from keras import backend as K
 
 
 def weight_variable(shape, stddev=0.1):
@@ -36,9 +38,18 @@ def bias_variable(shape):
     return tf.Variable(initial)
 
 
+# def conv2d(x, W, keep_prob_):
+#     conv_2d = tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='VALID')
+#     return tf.nn.dropout(conv_2d, keep_prob_)
 def conv2d(x, W, keep_prob_):
     conv_2d = tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='VALID')
-    return tf.nn.dropout(conv_2d, keep_prob_)
+
+    K.set_learning_phase(0)
+    conv_2d_with_bn = BatchNormalization()(conv_2d)
+    conv_2d_with_bn_dropout = tf.nn.dropout(conv_2d_with_bn, keep_prob_)
+    conv_2d_with_bn_dropout_bn = BatchNormalization()(conv_2d_with_bn_dropout)
+
+    return conv_2d_with_bn_dropout_bn
 
 
 def deconv2d(x, W, stride):

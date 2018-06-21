@@ -355,7 +355,7 @@ if __name__ == '__main__':
     #               cost='cross_entropy')
 
     cfe_test = CCTVFloodExtraction(video_file, model_file22)
-    cfe_test.train_tf_unet(train_dir_test, n_class=2, layers=5, features_root=64, batch_size=2, training_iters=100, epochs=40,
+    cfe_test.train_tf_unet(train_dir_test, n_class=2, layers=5, features_root=32, batch_size=2, training_iters=100, epochs=40,
                   cost='cross_entropy')
 
     # cfecomb = CCTVFloodExtraction(video_file, model_file_comb)
