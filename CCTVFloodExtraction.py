@@ -24,7 +24,6 @@ class CCTVFloodExtraction(object):
         self.pred_dir = self.check_create_folder(pred_dir, 'predictions', self.video_name)
         self.signal_dir = self.check_create_folder(signal_dir, 'signal')
 
-
         self.predictions = []
         self.crop_window = crop_window
 
@@ -242,7 +241,7 @@ class CCTVFloodExtraction(object):
         plt.savefig(plot_file_path)
         print('flood signal extracted')
 
-    def train_k_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1,
+    def train_k_unet(self, train_dir, valid_dir, layers=4, features_root=64, batch_size=1,
                       training_iters=10,
                       epochs=20, cost="cross_entropy", cost_kwargs={}):
         """ trains a unet instance on keras.
@@ -253,6 +252,35 @@ class CCTVFloodExtraction(object):
 
         """
         # preparing data loading
+        x_tr, y_tr = util.load_img_label(train_dir)
+        x_va, y_va = util.laod_img_label(valid_dir)
+
+        # print infos
+        k_unet.utils.print_info(x_tr)
+        k_unet.utils.print_info(y_tr)
+
+        # define u-net
+        model = k_unet.UNet((x_tr.shape[1:]), out_ch=1, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
+        model.compile(optimizer=k_unet.Adam(lr=0.001), loss=k_unet.f1_loss)
+        mc = k_unet.ModelCheckpoint(self.model_dir, save_best_only=True, save_weights_only=True)
+        es = k_unet.EarlyStopping(patience=9)
+        model.fit(x_tr, y_tr[..., np.newaxis], validation_data=(x_va, y_va[..., 0, np.newaxis]),
+                  epochs=epochs, batch_size=48, callbacks=[mc, es])
+
+    def predict_k_unet(self, test_img_dir, layers=4, features_root=64, channels=3, n_class=3):
+        x_va, y_va = util.laod_img_label(test_img_dir)
+
+        model = k_unet.UNet(x_va.shape[1:], out_ch=1, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
+        model.compile(optimizer=k_unet.Adam(lr=0.001), loss=k_unet.f1_loss, metrics=[k_unet.f1])
+
+        model.load_weights('weights/seg_fibula.h5')
+        p_va = model.predict(x_va, batch_size=8, verbose=1)
+
+        print('DICE:      ' + str(k_unet.f1_np(y_va, p_va)))
+        print('IoU:       ' + str(k_unet.iou_np(y_va, p_va)))
+        print('Precision: ' + str(k_unet.precision_np(y_va, p_va)))
+        print('Recall:    ' + str(k_unet.recall_np(y_va, p_va)))
+        print('Error:     ' + str(k_unet.error_np(y_va, p_va)))
 
     def train_tf_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1, training_iters=10,
                    epochs=20, cost="cross_entropy", cost_kwargs={}):
@@ -263,7 +291,6 @@ class CCTVFloodExtraction(object):
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-
         # preparing data loading
         files = os.path.join(train_dir, '*.png')
         img_mean, img_stdev = util.calc_mean_stdev(files, mask_suffix='label.png')

@@ -135,6 +135,25 @@ def combine_img_prediction(data, gt, pred):
     return img
 
 
+def load_img_label(img_path, mask_suffix='lable.png', n_class=2):
+    """ load images for keras_unte from folder where labels and images are located. labels must have an suffix to differ from images.
+
+    """
+    x, y = [], []
+    for file in [f for f in glob.glob(img_path) if not f.endswith(mask_suffix)]:
+        print('file', file)
+        img = cv2.imread(file, 1)
+        x.append(img)
+
+    for file in [f for f in glob.glob(img_path) if f.endswith(mask_suffix)]:
+        img = cv2.imread(file, 1)
+        # one_hot = np.eye(n_class)[img][:, :, 1, :]
+        # y.append(one_hot)
+        y.append(img)
+
+    return np.array(x), np.array(y)
+
+
 def calc_mean_stdev(img_path, mask_suffix='_label.png'):
     """ calculates the chanel wise mean and standard deviation of all pictures in that path ending with a number.
 
