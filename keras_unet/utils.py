@@ -7,14 +7,13 @@ from keras.callbacks import *
 from keras.losses import *
 from keras.preprocessing.image import *
 from os.path import isfile
-from tqdm import tqdm
+
 import random
 from glob import glob
 import skimage.io as io
 import skimage.transform as tr
 import skimage.morphology as mo
-import SimpleITK as sitk
-from pushover import Client
+
 import matplotlib.pyplot as plt
 
 # img helper functions
@@ -144,11 +143,11 @@ def get_crop_area(img, threshold=0):
     x = (x_arr[0] + x_arr[-1]) // 2 - size // 2
     return y, x, size
 
-def n4_bias_correction(img):
-    img = sitk.GetImageFromArray(img[..., 0].astype('float32'))
-    mask = sitk.OtsuThreshold(img, 0, 1, 200)
-    img = sitk.N4BiasFieldCorrection(img, mask)
-    return sitk.GetArrayFromImage(img)[..., np.newaxis]
+# def n4_bias_correction(img):
+#     img = sitk.GetImageFromArray(img[..., 0].astype('float32'))
+#     mask = sitk.OtsuThreshold(img, 0, 1, 200)
+#     img = sitk.N4BiasFieldCorrection(img, mask)
+#     return sitk.GetArrayFromImage(img)[..., np.newaxis]
 
 def handle_specials(img):
     if img.shape[0] == 26:
@@ -231,58 +230,58 @@ def read_mhd(path, label=0, crop=None, size=None, bias=False, norm=False):
     img = img[:, crop[0]:crop[0]+crop[2], crop[1]:crop[1]+crop[2]] if crop else img
     #img = img[:, crop[0]:-2*crop[1]+crop[0], crop[1]:-1*crop[1]] if crop else img
     img = resize_3d(img, size) if size else img
-    img = n4_bias_correction(img) if bias else img
+    # img = n4_bias_correction(img) if bias else img
     img = (img - img.mean()) / img.std() if norm else img
     return img.astype('float32')
 
 
-def load_data(path, label=0, size=(24,224,224), bias=False, norm=False, to2d=False):
-    files = glob(path)
-    x, y = [], []
-    for i in tqdm(range(len(files))):
-        img = read_mhd(files[i])
-        top, left, dim = get_crop_area(img)
-        img = read_mhd(files[i], label=label, crop=(top, left, dim), size=size)
-        if to2d:
-            for layer in img:
-                y.append(layer)
-        else:
-            y.append(img)
-        files[i] = files[i].replace('/VOI_LABEL/', '/MHD/', 1)
-        files[i] = files[i].replace('_LABEL.', '_ORIG.', 1)
-        img = read_mhd(files[i], crop=(top, left, dim), size=size, bias=bias, norm=norm)
-        if to2d:
-            for layer in img:
-                x.append(layer)
-        else:
-            x.append(img)
-    x = np.array(x)
-    y = np.array(y)
-    return x, y
+# def load_data(path, label=0, size=(24,224,224), bias=False, norm=False, to2d=False):
+#     files = glob(path)
+#     x, y = [], []
+#     for i in tqdm(range(len(files))):
+#         img = read_mhd(files[i])
+#         top, left, dim = get_crop_area(img)
+#         img = read_mhd(files[i], label=label, crop=(top, left, dim), size=size)
+#         if to2d:
+#             for layer in img:
+#                 y.append(layer)
+#         else:
+#             y.append(img)
+#         files[i] = files[i].replace('/VOI_LABEL/', '/MHD/', 1)
+#         files[i] = files[i].replace('_LABEL.', '_ORIG.', 1)
+#         img = read_mhd(files[i], crop=(top, left, dim), size=size, bias=bias, norm=norm)
+#         if to2d:
+#             for layer in img:
+#                 x.append(layer)
+#         else:
+#             x.append(img)
+#     x = np.array(x)
+#     y = np.array(y)
+#     return x, y
 
-def load_data_age(files, size=None, crop=None, bias=False, norm=False, 
-                  to2d=False, smart_crop=False):
-    files = glob(files)
-    x, y = [], []
-    for i in tqdm(range(len(files))):
-        if crop:
-            if smart_crop:
-                img = read_mhd(files[i])
-                c = y_center(img)
-                crop[0] = c - crop[2] // 2
-        img = read_mhd(files[i], crop=crop, size=size, bias=bias, norm=norm)
-        f = files[i].split('_')
-        age = int(f[3]) + int(f[4]) / 12.
-        if to2d:
-            for layer in img:
-                x.append(layer)
-                y.append(age)
-        else:
-            x.append(img)
-            y.append(age)
-    x = np.array(x)
-    y = np.array(y)
-    return x, y
+# def load_data_age(files, size=None, crop=None, bias=False, norm=False,
+#                   to2d=False, smart_crop=False):
+#     files = glob(files)
+#     x, y = [], []
+#     for i in tqdm(range(len(files))):
+#         if crop:
+#             if smart_crop:
+#                 img = read_mhd(files[i])
+#                 c = y_center(img)
+#                 crop[0] = c - crop[2] // 2
+#         img = read_mhd(files[i], crop=crop, size=size, bias=bias, norm=norm)
+#         f = files[i].split('_')
+#         age = int(f[3]) + int(f[4]) / 12.
+#         if to2d:
+#             for layer in img:
+#                 x.append(layer)
+#                 y.append(age)
+#         else:
+#             x.append(img)
+#             y.append(age)
+#     x = np.array(x)
+#     y = np.array(y)
+#     return x, y
 
 def print_weights(weight_file_path):
     """
@@ -449,11 +448,11 @@ def error_np(y_true, y_pred):
 
 # Notifications
     
-def pushover(title, message):
-    user = "u96ub3t5wu1nexmgi22xjs31jeb8y6"
-    api = "avfytsyktracxood45myebobtry6yd"
-    client = Client(user, api_token=api)
-    client.send_message(message, title=title)
+# def pushover(title, message):
+#     user = "u96ub3t5wu1nexmgi22xjs31jeb8y6"
+#     api = "avfytsyktracxood45myebobtry6yd"
+#     client = Client(user, api_token=api)
+#     client.send_message(message, title=title)
     
 #from nipype.interfaces.ants import N4BiasFieldCorrection
 #correct = N4BiasFieldCorrection()

@@ -135,23 +135,39 @@ def combine_img_prediction(data, gt, pred):
     return img
 
 
-def load_img_label(img_path, mask_suffix='lable.png', n_class=2):
+def load_img_label(img_path, shape=None, mask_suffix='label.png', n_class=2):
     """ load images for keras_unte from folder where labels and images are located. labels must have an suffix to differ from images.
 
     """
-    x, y = [], []
-    for file in [f for f in glob.glob(img_path) if not f.endswith(mask_suffix)]:
-        print('file', file)
-        img = cv2.imread(file, 1)
-        x.append(img)
+    img_files = [f for f in glob.glob(img_path) if not f.endswith(mask_suffix)]
+    label_files = [f for f in glob.glob(img_path) if f.endswith(mask_suffix)]
+    first_img = cv2.imread(img_files[0], 1)
 
-    for file in [f for f in glob.glob(img_path) if f.endswith(mask_suffix)]:
-        img = cv2.imread(file, 1)
-        # one_hot = np.eye(n_class)[img][:, :, 1, :]
-        # y.append(one_hot)
-        y.append(img)
+    n = len(img_files)
+    w = first_img.shape[0]
+    h = first_img.shape[1]
 
-    return np.array(x), np.array(y)
+    x, y = np.full((n, w, h, 3), np.empty), np.full((n, w, h, n_class), np.empty)
+    for i, file in enumerate(img_files):
+        img = cv2.imread(file, 1)
+        if shape is not None:
+            img = resize_keep_aspect(img, shape)
+        x[i, :, :, :] = img
+
+    for i, file in enumerate(label_files):
+        img = cv2.imread(file, 1)
+        if shape is not None:
+            img = resize_keep_aspect(img, shape)
+        one_hot = np.eye(n_class)[img][:, :, 1, :]
+        y[i, :, :, :] = one_hot
+
+    return x, y
+
+
+def calc_mean_stdev2(img):
+    m = np.mean(img, axis=(0, 1, 2))
+    s = np.std(img, axis=(0, 1, 2))
+    return m, s
 
 
 def calc_mean_stdev(img_path, mask_suffix='_label.png'):
@@ -210,3 +226,49 @@ def rename_pics(source, suffix='_label.png'):
         base, tail = os.path.split(img)
         name = os.path.splitext(tail)[0]
         os.rename(img, os.path.join(base, name + suffix))
+
+def resize_pics(path, shape):
+    for file in glob.glob(path):
+        print('file', file)
+        im = cv2.imread(file)
+
+        new_im = resize_keep_aspect(im)
+        cv2.imwrite(file, new_im)
+
+
+# defined myself
+def resize_keep_aspect(im, desired_size):
+    ## opencv has copyMakeBorder() method which is handy for making borders
+    old_size = im.shape[:2]  # old_size is in (height, width) format
+    ratio = float(desired_size) / max(old_size)
+    new_size = tuple([int(x * ratio) for x in old_size])
+
+    # new_size should be in (width, height) format
+    im = cv2.resize(im, (new_size[1], new_size[0]))
+
+    delta_w = desired_size - new_size[1]
+    delta_h = desired_size - new_size[0]
+    top, bottom = delta_h // 2, delta_h - (delta_h // 2)
+    left, right = delta_w // 2, delta_w - (delta_w // 2)
+
+    color = [0, 0, 0]
+    return cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+
+
+def convert_images(path, src='jpg', dst='png'):
+    glob_path = os.path.join(path, '*.' + src)
+    for j in glob.glob(glob_path):
+        print('converted file: ', j)
+        img = cv2.imread(j)
+        base, tail = os.path.split(j)
+        name = os.path.splitext(tail)[0]
+        file_path = os.path.join(base, name)  # path without extension
+        cv2.imwrite(file_path + '.' + dst, img)
+        os.remove(j)
+
+
+def remove_images(path, ext='jpg'):
+    glob_path = os.path.join(path, '*.' + ext)
+    for j in glob.glob(glob_path):
+        print('deleted file: ', j)
+        os.remove(j)
