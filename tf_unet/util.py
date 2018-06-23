@@ -24,7 +24,7 @@ import cv2
 import os
 import glob
 import shutil
-
+from keras.preprocessing import image as k_img
 
 def plot_prediction(x_test, y_test, prediction, save=False):
     import matplotlib
@@ -133,6 +133,21 @@ def combine_img_prediction(data, gt, pred):
                           to_rgb(crop_to_shape(gt[..., 1], pred.shape).reshape(-1, ny, 1)), 
                           to_rgb(pred[..., 1].reshape(-1, ny, 1))), axis=1)
     return img
+
+
+def load_images(img_path):
+    files = glob.glob(os.path.join(img_path, '*'))
+    first_img = k_img.load_img(files[0])
+
+    n = len(files)
+    w = first_img.width
+    h = first_img.height
+    x = np.empty((n, w, h, 3))
+    for i, f in enumerate(files):
+        im = k_img.load_img(f)
+        x[i, :, :, :] = k_img.img_to_array(im).astype(np.float32)
+
+    return x
 
 
 def load_img_label(img_path, shape=None, mask_suffix='label.png', n_class=2):

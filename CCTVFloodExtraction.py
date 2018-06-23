@@ -244,39 +244,47 @@ class CCTVFloodExtraction(object):
         print('flood signal extracted')
 
     def train_k_unet(self, train_dir, valid_dir, layers=4, features_root=64, batch_size=1, epochs=20, cost="cross_entropy"):
-        """ trains a unet instance on keras.
+        """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
 
             example of defining paths
             train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-        data_gen_args = dict(width_shift_range=0.2, height_shift_range=0.2)
-        image_datagen = ImageDataGenerator(**data_gen_args)
-        mask_datagen = ImageDataGenerator(**data_gen_args)
-        seed = 1
-        img_rows = 640
-        img_cols = 640
-        shape = (img_rows, img_cols, 3)
         img_dir = os.path.join(train_dir, 'images')
         mas_dir = os.path.join(train_dir, 'masks')
+        seed = 1
 
-        image_generator = image_datagen.flow_from_directory(img_dir, target_size=(img_rows, img_cols),
-                                                            class_mode=None, seed=seed, batch_size=batch_size,
-                                                            color_mode='rgb')
-        mask_generator = mask_datagen.flow_from_directory(mas_dir, target_size=(img_rows, img_cols),
-                                                          class_mode=None, seed=seed, batch_size=batch_size,
-                                                          color_mode='grayscale')
+        x_sample = util.load_images(os.path.join(img_dir, '0'))  # load training pictures in numpy array
+        shape = x_sample.shape  # pic_nr x width x height x depth
+        n_train = shape[0]  # len(image_generator)
+        n_valid = 100
 
-        n_train = 2228  # len(image_generator)
-        n_valid = 312
+        image_datagen = ImageDataGenerator(featurewise_center=True,
+                                           featurewise_std_normalization=True,
+                                           width_shift_range=0.2,
+                                           height_shift_range=0.2,
+                                           vertical_flip=True,
+                                           zoom_range=0.0)
 
-        img_valid_gen = image_datagen.flow_from_directory(valid_dir)
-        mask_valid_gen = mask_datagen.flow_from_directory(valid_dir)
+        mask_datagen = ImageDataGenerator(width_shift_range=0.2,
+                                          height_shift_range=0.2,
+                                          vertical_flip=True,
+                                          zoom_range=0.0)
+
+        image_datagen.fit(x_sample, seed=seed)  # calculate mean and stddeviation of training sample for normalisation
+
+        flow_args_i = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='rgb')
+        flow_args_m = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='grayscale')
+
+        image_generator = image_datagen.flow_from_directory(img_dir, **flow_args_i)
+        mask_generator = mask_datagen.flow_from_directory(mas_dir, **flow_args_m)
+
+        img_valid_gen = image_datagen.flow_from_directory(valid_dir, **flow_args_i)
+        mask_valid_gen = mask_datagen.flow_from_directory(valid_dir, **flow_args_m)
 
         train_generator = zip(image_generator, mask_generator)
         valid_generator = zip(img_valid_gen, mask_valid_gen)
-
 
         # # loading data with resizing it to size keeping aspect ratio
         # x_tr, y_tr = util.load_img_label(os.path.join(train_dir, '*'))
@@ -302,16 +310,19 @@ class CCTVFloodExtraction(object):
         # print_info(y_tr)
 
         # define u-net
-        model = UNet(shape, out_ch=1, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
-        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc'])
+        model = UNet(shape[1:], out_ch=1, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
+        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['accuracy', 'categorical_crossentropy'])
+
         mc = ModelCheckpoint(os.path.join(self.model_dir, 'test.h5'), save_best_only=True, save_weights_only=True)
         es = EarlyStopping(patience=9)
         tb = TensorBoard(log_dir=self.model_dir)
+
+        # train unet with image_generator
         model.fit_generator(train_generator,
                             validation_data=valid_generator,
                             steps_per_epoch=n_train / batch_size,
                             validation_steps=n_valid / batch_size,
-                            epochs=100,
+                            epochs=epochs,
                             verbose=1,
                             callbacks=[mc, es, tb],
                             use_multiprocessing=False,
@@ -408,13 +419,13 @@ if __name__ == '__main__':
     train_dir_test = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
     valid_dir_test = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\valid_test'
 
-    model_file_keras = os.path.join(file_base, 'models', 'flood_keras_c2l4b8e40f64')
+    model_file_keras = os.path.join(file_base, 'models', 'flood_keras_c2l4b3e5f32')
     train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
     valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
     test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
 
-    train_dir_gen = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\train_gen'
-    valid_dir_gen = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\validate_gen'
+    train_dir_gen = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
+    valid_dir_gen = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
 
     pred_dir_flood = os.path.join(file_base, 'predictions', 'raw_flood_')
     img_pred_dir = os.path.join(file_base, 'train', 'cityscape')
@@ -447,7 +458,7 @@ if __name__ == '__main__':
     #               cost='cross_entropy')
 
     cfe_keras = CCTVFloodExtraction(video_file, model_file_keras)
-    cfe_keras.train_k_unet(train_dir_gen, valid_dir_gen, layers=4, features_root=32, batch_size=3, epochs=40,
+    cfe_keras.train_k_unet(train_dir_gen, valid_dir_gen, layers=4, features_root=32, batch_size=3, epochs=5,
                   cost='cross_entropy')
 
     # cfecomb = CCTVFloodExtraction(video_file, model_file_comb)
@@ -476,10 +487,12 @@ if __name__ == '__main__':
     # util.rename_pics(dst_la + '*')
     # util.convert_images(dst_img, src='jpeg', dst='png')
 
-    src = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\test\\*.png'
-    dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\test_gen\\masks\\0\\'
-    mask_suffix = '_label.png'
-    import glob
-    for file in [f for f in glob.glob(src) if f.endswith(mask_suffix)]:
-        shutil.move(file, dst)
+    # src = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\test\\*.png'
+    # dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\annotations\\Flood_*_*.json'
+    # mask_suffix = '_label.png'
+    # import glob
+    # for file in glob.glob(dst):
+    #     #print(file)
+    #     os.remove(file)
+    #     #shutil.move(file, dst)
 
