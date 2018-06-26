@@ -1,25 +1,23 @@
+import os
+import glob
+import re
+import numpy as np
+import cv2
+
 from keras.models import Input, Model
 from keras.layers import Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, UpSampling2D, Dropout, BatchNormalization
+from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
+from keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
+from keras.utils import to_categorical
 
-'''
-U-Net: Convolutional Networks for Biomedical Image Segmentation
-(https://arxiv.org/abs/1505.04597)
----
-img_shape: (height, width, channels)
-out_ch: number of output channels
-start_ch: number of channels of the first conv
-depth: zero indexed depth of the U-structure
-inc_rate: rate at which the conv channels will increase
-activation: activation function after convolutions
-dropout: amount of dropout in the contracting part
-batchnorm: adds Batch Normalization if true
-maxpool: use strided conv instead of maxpooling if false
-upconv: use transposed conv instead of upsamping + conv if false
-residual: add residual connections around each conv block if true
-'''
+from keras_unet.utils import f1_loss, f1_np, iou_np, precision_np, recall_np, error_np
 
 
 def conv_block(m, dim, acti, bn, res, do=0):
+    """ creates convolutional block for creating u-net
+
+    """
     n = Conv2D(dim, 3, activation=acti, padding='same')(m)
     n = BatchNormalization()(n) if bn else n
     n = Dropout(do)(n) if do else n
@@ -45,9 +43,239 @@ def level_block(m, dim, depth, inc, acti, do, bn, mp, up, res):
     return m
 
 
-def UNet(img_shape, out_ch=1, start_ch=64, depth=4, inc_rate=2., activation='relu', dropout=0.5, batchnorm=False, maxpool=True, upconv=True, residual=False):
-    i = Input(shape=img_shape)
-    o = level_block(i, start_ch, depth, inc_rate, activation, dropout, batchnorm, maxpool, upconv, residual)
-    o = Conv2D(out_ch, 1, activation='sigmoid')(o)
+def load_masks(path):
+    files = glob.glob(os.path.join(path, '*'))
+    first_img = load_img(files[0])
 
-    return Model(inputs=i, outputs=o)
+    n = len(files)
+    w = first_img.width
+    h = first_img.height
+    x = np.empty((n, w, h))
+
+    for i, f in enumerate(files):
+        im = load_img(f)
+        x[i, :, :] = img_to_array(im)[:, :, 0].astype(np.int8)
+
+    return x
+
+
+def load_images(path, sort=False):
+    files = glob.glob(os.path.join(path, '*'))
+    if sort is True:
+        files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+    first_img = load_img(files[0])
+
+    n = len(files)
+    w = first_img.width
+    h = first_img.height
+    x = np.empty((n, h, w, 3))
+
+    for i, f in enumerate(files):
+        im = load_img(f)
+        x[i, :, :, :] = img_to_array(im).astype(np.float32)
+
+    return x
+
+
+def channel_mean_stdev(img):
+    m = np.mean(img, axis=(0, 1, 2))
+    s = np.std(img, axis=(0, 1, 2))
+    return m, s
+
+
+def store_prediction(predictions, images, output_dir):
+    class_mapping = {0: [0, 0, 0], 1: [0, 0, 255]}
+    count = 0
+    for pred, img in zip(predictions, images):
+        best_pred = np.argmax(pred, axis=-1)  # take label of maximum probability
+
+        # # resize the color map to fit image
+        # img_crop = np.uint8(img[0, :, :, :] * 255)
+
+        # overlay cmap with image
+        prediction = np.repeat(best_pred[:, :, np.newaxis], 3, axis=-1)
+        # fill prediction with right rgb colors
+        for label, rgb in class_mapping.items():
+            prediction[prediction[:, :, 0] == label] = rgb
+
+        overlay_img = cv2.addWeighted(np.uint8(img), 0.8, np.uint8(prediction), 0.5, 0)
+        cv2.imwrite(os.path.join(output_dir, 'pred' + str(count) + '.png'),
+                    cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
+        count +=1
+
+
+class UNet(object):
+    """ Class which create UNet model and trains it and test it
+
+    U-Net: Convolutional Networks for Biomedical Image Segmentation
+    (https://arxiv.org/abs/1505.04597)
+
+    Arguments:
+        img_shape: (height, width, channels)
+        n_class: number of output channels, classes to predict in one-hot coding
+        root_features: number of channels of the first conv
+        layers: zero indexed depth of the U-structure, number of layers
+        inc_rate: rate at which the conv channels will increase
+        activation: activation function after convolutions
+        dropout: amount of dropout in the contracting part
+        batch_norm: adds Batch Normalization if true
+        max_pool: use strided conv instead of maxpooling if false
+        up_conv: use transposed conv instead of upsamping + conv if false
+        residual: add residual connections around each conv block if true
+    """
+    def __init__(self, img_shape, n_class=2, root_features=64, layers=4, inc_rate=1., activation='relu', dropout=0.5,
+                 batch_norm=False, max_pool=True, up_conv=True, residual=False):
+        self.img_shape = img_shape
+        self.n_class = n_class
+        self.root_features = root_features
+        self.layers = layers
+        self.inc_rate = inc_rate
+        self.activation = activation
+        self.dropout = dropout
+        self.batch_norm = batch_norm
+        self.max_pool = max_pool
+        self.up_conv = up_conv
+        self.residuals = residual
+
+        # define model
+        i = Input(shape=img_shape)
+        o = level_block(i, n_class, layers, inc_rate, activation, dropout, batch_norm, max_pool, up_conv, residual)
+        o = Conv2D(n_class, 1, activation='sigmoid')(o)
+        self.model = Model(inputs=i, outputs=o)
+
+    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=4, augmentation=True, normalisation=True):
+        """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
+
+            example of defining paths
+            train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
+            model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
+
+        """
+        seed = 1
+
+        x_tr = load_images(os.path.join(train_dir, 'images', '0'))  # load training pictures in numpy array
+        shape = x_tr.shape  # pic_nr x width x height x depth
+        n_train = shape[0]  # len(image_generator)
+
+        # compile model with optimizer and loss function
+        self.model.compile(optimizer=Adam(lr=0.001), loss='categorical_crossentropy',
+                      metrics=['acc', 'categorical_crossentropy'])
+
+        # define callbacks
+        mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
+        es = EarlyStopping(patience=9)
+        tb = TensorBoard(log_dir=model_dir)
+
+        y_tr = load_masks(os.path.join(train_dir, 'masks', '0'))  # load mask arrays
+        x_va = load_images(os.path.join(valid_dir, 'images', '0'))
+        y_va = load_masks(os.path.join(valid_dir, 'masks', '0'))
+        n_valid = x_va.shape[0]
+
+        # data normalisation
+        if normalisation is True:
+            img_mean, img_stdev = channel_mean_stdev(x_tr)
+            x_tr -= img_mean
+            x_tr /= img_stdev
+            x_va -= img_mean
+            x_va /= img_stdev
+
+        # create one-hot
+        y_tr = to_categorical(y_tr, self.n_class)
+        y_va = to_categorical(y_va, self.n_class)
+
+        if augmentation:
+
+            image_datagen = ImageDataGenerator(featurewise_center=False,
+                                               featurewise_std_normalization=False,
+                                               width_shift_range=0.2,
+                                               height_shift_range=0.2,
+                                               horizontal_flip=True,
+                                               zoom_range=0.0)
+
+            # calculate mean and stddeviation of training sample for normalisation (if featurwise center is true)
+            image_datagen.fit(x_tr, seed=seed)
+
+            # create image generator for online data augmentation
+            train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size)
+            valid_generator = (x_va, y_va)
+
+            # train unet with image_generator
+            self.model.fit_generator(train_generator,
+                                     validation_data=valid_generator,
+                                     steps_per_epoch=n_train / batch_size,
+                                     validation_steps=n_valid / batch_size,
+                                     epochs=epochs,
+                                     verbose=1,
+                                     callbacks=[mc, es, tb],
+                                     use_multiprocessing=False,
+                                     workers=4)
+        else:
+            self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size, shuffle=True, callbacks=[mc, es, tb])
+
+        scores = self.model.evaluate(x_va, y_va, verbose=1)
+        print('scores', scores)
+
+    def test(self, model_dir, test_img_dir, output_dir, batch_size=8):
+
+        x_va = load_images(os.path.join(test_img_dir, 'images', '0'))
+        y_va = load_masks(os.path.join(test_img_dir, 'masks', '0'))
+        y_va = to_categorical(y_va, self.n_class)
+
+        self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+
+        self.model.load_weights(os.path.join(model_dir, 'model.h5'))
+        p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
+
+        scores = self.model.evaluate(x_va, y_va, verbose=1)
+        store_prediction(p_va, x_va, output_dir)
+
+        print('DICE:      ' + str(f1_np(y_va, p_va)))
+        print('IoU:       ' + str(iou_np(y_va, p_va)))
+        print('Precision: ' + str(precision_np(y_va, p_va)))
+        print('Recall:    ' + str(recall_np(y_va, p_va)))
+        print('Error:     ' + str(error_np(y_va, p_va)))
+        print('Scores:    ', scores)
+
+    def predict(self, model_dir, img_dir, output_dir, batch_size=4):
+        x_va = load_images(os.path.join(img_dir), sort=True)
+
+        self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+        self.model.load_weights(os.path.join(model_dir, 'model.h5'))
+
+        p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
+        store_prediction(p_va, x_va, output_dir)
+
+if __name__ == '__main__':
+    # for apple
+    # file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
+
+    # for windows
+    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
+
+    model_name = 'flood_c2l4b4e50f32_test'
+    model_dir = os.path.join(file_base, 'models', model_name)
+
+    train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
+    valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
+    test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
+
+    pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
+
+    test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
+    test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
+    pred_dir_elliot = os.path.join(file_base, 'predictions', model_name, 'elliotCityFlood')
+    pred_dir_athletic = os.path.join(file_base, 'predictions', model_name, 'ChaskaAthleticPark')
+
+    if not os.path.isdir(pred_dir_flood):
+        os.mkdir(pred_dir_flood)
+
+    if not os.path.isdir(pred_dir_athletic):
+        os.mkdir(pred_dir_athletic)
+
+    img_shape = (512, 512, 3)
+    unet = UNet(img_shape, root_features=32, layers=4, batch_norm=True)
+
+    # unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=4, epochs=5)
+    unet.test(model_dir, test_dir_flood, pred_dir_flood)
+    unet.predict(model_dir, test_dir_athletic, pred_dir_athletic, batch_size=32)
+

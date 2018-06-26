@@ -9,6 +9,8 @@ import glob
 import shutil
 from tf_unet import unet, util, image_util
 from keras_unet.utils import *
+from keras_unet.k_unet import load_images, store_prediction
+
 from keras import utils as keras_utils
 
 
@@ -150,6 +152,15 @@ class CCTVFloodExtraction(object):
             print('created new directory ', self.pred_dir)
             os.makedirs(self.pred_dir)
 
+            if model_type == 'keras':
+                x_va = load_images(os.path.join(img_dir), sort=True)
+
+                self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+                self.model.load_weights(os.path.join(model_dir, 'model.h5'))
+
+                p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
+                store_prediction(p_va, x_va, output_dir)
+
             if model_type == 'tensorflow':
                 import tensorflow as tf
 
@@ -244,223 +255,6 @@ class CCTVFloodExtraction(object):
         plt.show()
         plt.savefig(plot_file_path)
         print('flood signal extracted')
-
-    def train_k_unet(self, train_dir, valid_dir, layers=4, features_root=64, batch_size=1, epochs=20, cost="cross_entropy"):
-        """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
-
-            example of defining paths
-            train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
-            model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
-
-        """
-        img_dir_tr = os.path.join(train_dir, 'images')
-        mask_dir_tr = os.path.join(train_dir, 'masks')
-        img_dir_va = os.path.join(valid_dir, 'images')
-        mask_dir_va = os.path.join(valid_dir, 'masks')
-
-        seed = 1
-
-        x_tr = util.load_images(os.path.join(img_dir_tr, '0'))  # load training pictures in numpy array
-        shape = x_tr.shape  # pic_nr x width x height x depth
-        n_train = shape[0]  # len(image_generator)
-        n_class = 2
-        augmentation = True
-        subtract_pixel_mean = True
-        dir_type = 'flow'
-
-        # define u-net
-        model = UNet(shape[1:], out_ch=n_class, start_ch=features_root, depth=layers, inc_rate=1, activation='relu',
-                     upconv=False, batchnorm=True)
-        model.compile(optimizer=Adam(lr=0.0005), loss='categorical_crossentropy', metrics=['acc', 'categorical_crossentropy'])
-
-        mc = ModelCheckpoint(os.path.join(self.model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
-        es = EarlyStopping(patience=9)
-        tb = TensorBoard(log_dir=self.model_dir)
-
-        if augmentation:
-
-            image_datagen = ImageDataGenerator(featurewise_center=False,
-                                               featurewise_std_normalization=False,
-                                               width_shift_range=0.2,
-                                               height_shift_range=0.2,
-                                               horizontal_flip=True,
-                                               zoom_range=0.0)
-
-            mask_datagen = ImageDataGenerator(width_shift_range=0.2,
-                                              height_shift_range=0.2,
-                                              horizontal_flip=True,
-                                              zoom_range=0.0)
-
-            image_datagen.fit(x_tr, seed=seed)  # calculate mean and stddeviation of training sample for normalisation
-
-            if dir_type == 'dir_flow':
-
-                flow_args_i = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='rgb')
-                flow_args_m = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='grayscale')
-
-                image_generator = image_datagen.flow_from_directory(img_dir_tr, **flow_args_i)
-                mask_generator = mask_datagen.flow_from_directory(mask_dir_tr, **flow_args_m)
-
-                img_valid_gen = image_datagen.flow_from_directory(img_dir_va, **flow_args_i)
-                mask_valid_gen = mask_datagen.flow_from_directory(mask_dir_va, **flow_args_m)
-
-                n_valid = mask_valid_gen.n
-
-                train_generator = zip(image_generator, mask_generator)
-                valid_generator = zip(img_valid_gen, mask_valid_gen)
-
-            else:
-                print('flowtyp flow')
-                y_tr = util.load_masks(os.path.join(mask_dir_tr, '0'))  # load mask arrays
-                x_va = util.load_images(os.path.join(valid_dir, 'images', '0'))
-                y_va = util.load_masks(os.path.join(valid_dir, 'masks', '0'))
-                n_valid = x_va.shape[0]
-
-                # data normalisation
-                img_mean, img_stdev = util.calc_mean_stdev2(x_tr)
-                x_tr -= img_mean
-                x_tr /= img_stdev
-                x_va -= img_mean
-                x_va /= img_stdev
-
-                # create one-hot
-                y_tr = keras_utils.to_categorical(y_tr, n_class)
-                y_va = keras_utils.to_categorical(y_va, n_class)
-
-                # create image generator for online data augmentation
-                save_dir = os.path.join(self.model_dir, 'augmentations')
-                train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, save_to_dir=save_dir)
-                valid_generator = (x_va, y_va)
-
-            # # loading data with resizing it to size keeping aspect ratio
-            # # data augmentation
-            # seq = iaa.Sequential([
-            #     #iaa.Fliplr(1),  # horizontally flip 50% of the images
-            #     iaa.GaussianBlur(sigma=(1.0, 2.0))  # blur images with a sigma of 0 to 3.0
-            # ])
-            # # x_tr = seq.augment_images(x_tr)
-            # print('data preprocessing finished')
-
-            # train unet with image_generator
-            model.fit_generator(train_generator,
-                                validation_data=valid_generator,
-                                steps_per_epoch=n_train / batch_size,
-                                validation_steps=n_valid / batch_size,
-                                epochs=epochs,
-                                verbose=1,
-                                callbacks=[mc, es, tb],
-                                use_multiprocessing=False,
-                                workers=4)
-
-        else:
-            y_tr = util.load_masks(os.path.join(mask_dir_tr, '0'))  # load mask arrays
-            x_va = util.load_images(os.path.join(valid_dir, 'images', '0'))
-            y_va = util.load_masks(os.path.join(valid_dir, 'masks', '0'))
-
-            # Normalize data.
-            x_tr = x_tr.astype('float32') / 255
-            x_va = x_va.astype('float32') / 255
-            # img_mean, img_stdev = util.calc_mean_stdev2(x_tr)
-            # x_tr -= img_mean
-            # x_tr /= img_stdev
-            # x_va -= img_mean
-            # x_va /= img_stdev
-
-            # If subtract pixel mean is enabled
-            if subtract_pixel_mean:
-                x_train_mean = np.mean(x_tr, axis=0)
-                x_tr -= x_train_mean
-                x_va -= x_train_mean
-
-            # Convert class vectors to binary class matrices.
-            y_tr = keras_utils.to_categorical(y_tr, n_class)
-            y_va = keras_utils.to_categorical(y_va, n_class)
-
-            model.fit(x_tr, y_tr, validation_data=(x_va, y_va),
-                       epochs=epochs, batch_size=batch_size, shuffle=True, callbacks=[mc, es, tb])
-
-        scores = model.evaluate(x_va, y_va, verbose=1)
-
-        print('scores', scores)
-
-    def test_k_unet(self, test_img_dir, layers=4, features_root=64, batch_size=8, channels=3, n_class=2):
-
-        x_va = util.load_images(os.path.join(test_img_dir, 'images', '0'))
-        y_va = util.load_masks(os.path.join(test_img_dir, 'masks', '0'))
-        y_va = keras_utils.to_categorical(y_va, n_class)
-
-        model = UNet(x_va.shape[1:], out_ch=n_class, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
-        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
-
-        model.load_weights(os.path.join(self.model_dir, 'model.h5'))
-        p_va = model.predict(x_va, batch_size=batch_size, verbose=1)
-
-        scores = model.evaluate(x_va, y_va, verbose=1)
-        util.store_prediction(p_va, x_va, self.pred_dir)
-
-        print('DICE:      ' + str(f1_np(y_va, p_va)))
-        print('IoU:       ' + str(iou_np(y_va, p_va)))
-        print('Precision: ' + str(precision_np(y_va, p_va)))
-        print('Recall:    ' + str(recall_np(y_va, p_va)))
-        print('Error:     ' + str(error_np(y_va, p_va)))
-        print('Scores:    ', scores)
-
-    def predict_k_unet(self, test_img_dir, layers=4, features_root=64, batch_size=8, channels=3, n_class=2):
-        x_va = util.load_images(os.path.join(test_img_dir), sort=True)
-        model = UNet(x_va.shape[1:], out_ch=n_class, start_ch=features_root, depth=layers, inc_rate=1,
-                     activation='relu', upconv=False, batchnorm=True)
-        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
-
-        model.load_weights(os.path.join(self.model_dir, 'model.h5'))
-        p_va = model.predict(x_va, batch_size=batch_size, verbose=1)
-        util.store_prediction(p_va, x_va, self.pred_dir)
-
-    def train_tf_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1, training_iters=10,
-                   epochs=20, cost="cross_entropy", cost_kwargs={}):
-        """ trains a unet instance with n_classes. Other hyperparameters have to be tuned in the code.
-
-            example of defining paths
-            train_dir = "E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\"
-            model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
-
-        """
-        # preparing data loading
-        files = os.path.join(train_dir, '*.png')
-        img_mean, img_stdev = util.calc_mean_stdev(files, mask_suffix='label.png')
-
-        data_provider = image_util.ImageDataProvider(files, data_suffix=".png", mask_suffix='_label.png',
-                                                     shuffle_data=True, n_class=n_class, channel_mean=img_mean, channel_stdev=img_stdev)
-
-        # setup & training
-        net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class, cost=cost, cost_kwargs=cost_kwargs)
-        trainer = unet.Trainer(net, batch_size=batch_size, norm_grads=False, optimizer="adam")
-        path = trainer.train(data_provider, self.model_dir, training_iters=training_iters, epochs=epochs)
-
-        return path
-
-    def test_tf_unet(self, test_img_dir, layers=4, features_root=64, channels=3, n_class=3):
-        """ makes test prediction after U-Net is trained.
-
-        Examples of paths
-        test_img_dir = "E:\\watson_for_trend\\3_select_for_labelling\\test_cityscape\\"
-        test_pred_dir = "E:\\watson_for_trend\\6_test\\cityscape_l5f64c3n8e20\\"
-
-        """
-        # prediction
-        net = unet.Unet(layers=layers, features_root=features_root, channels=channels, n_class=n_class)
-        files = os.path.join(test_img_dir, '*.png')
-        data_provider = image_util.ImageDataProvider(files, data_suffix=".png",
-                                                     mask_suffix='_label.png', shuffle_data=True, n_class=n_class)
-
-        # loop through files
-        for file in data_provider.data_files:
-            x, [y] = data_provider(1)
-
-            prediction = net.predict(os.path.join(self.model_dir, 'model.ckpt'), x)
-
-            unet.error_rate(prediction, util.crop_to_shape(y, prediction.shape))
-
-            util.create_overlay(prediction, util.crop_to_shape(x, prediction.shape), os.path.basename(file), self.pred_dir)
 
 
 if __name__ == '__main__':

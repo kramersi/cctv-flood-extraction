@@ -92,4 +92,12 @@ class ImageGenerator(keras.utils.Sequence):
         return X, keras.utils.to_categorical(y, num_classes=self.n_classes)
 
     def __data_augmentation(self, x, y):
+        # # loading data with resizing it to size keeping aspect ratio
+        # # data augmentation
+        # seq = iaa.Sequential([
+        #     #iaa.Fliplr(1),  # horizontally flip 50% of the images
+        #     iaa.GaussianBlur(sigma=(1.0, 2.0))  # blur images with a sigma of 0 to 3.0
+        # ])
+        # # x = seq.augment_images(x)
+        # print('data preprocessing finished')
         return x, y
