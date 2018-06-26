@@ -9,6 +9,8 @@ import glob
 import shutil
 from tf_unet import unet, util, image_util
 from keras_unet.utils import *
+from keras import utils as keras_utils
+
 
 class CCTVFloodExtraction(object):
 
@@ -56,7 +58,7 @@ class CCTVFloodExtraction(object):
                 self.video_file = fp
                 print('video imported and stored in ', fp)
 
-    def video2frame(self, skip=1, resize_dims=None, mirror=False, max_frames=10, rotate=0):
+    def video2frame(self, skip=1, resize_dims=None, mirror=False, keep_aspect=True, max_frames=10, rotate=0):
         """ extract frames out of a video
 
         Args:
@@ -68,12 +70,9 @@ class CCTVFloodExtraction(object):
 
         """
 
-        if os.path.isdir(self.frame_dir):
+        if len(os.listdir(self.frame_dir)) > 0:
             print('Picture from this movie already extracted in that directory.')
         else:
-            print('created new directory ', self.frame_dir)
-            os.makedirs(self.frame_dir)
-
             video_object = cv2.VideoCapture(self.video_file)  # make video object
 
             index = 0
@@ -92,7 +91,10 @@ class CCTVFloodExtraction(object):
 
                         # resize frames
                         if resize_dims is not None:
-                            frame = cv2.resize(frame, resize_dims, interpolation=cv2.INTER_CUBIC)
+                            if keep_aspect is True:
+                                frame = util.resize_keep_aspect(frame, resize_dims)
+                            else:
+                                frame = cv2.resize(frame, resize_dims, interpolation=cv2.INTER_CUBIC)
 
                         # mirror frames
                         if mirror and last_mirrored:
@@ -251,100 +253,167 @@ class CCTVFloodExtraction(object):
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-        img_dir = os.path.join(train_dir, 'images')
-        mas_dir = os.path.join(train_dir, 'masks')
+        img_dir_tr = os.path.join(train_dir, 'images')
+        mask_dir_tr = os.path.join(train_dir, 'masks')
+        img_dir_va = os.path.join(valid_dir, 'images')
+        mask_dir_va = os.path.join(valid_dir, 'masks')
+
         seed = 1
 
-        x_sample = util.load_images(os.path.join(img_dir, '0'))  # load training pictures in numpy array
-        shape = x_sample.shape  # pic_nr x width x height x depth
+        x_tr = util.load_images(os.path.join(img_dir_tr, '0'))  # load training pictures in numpy array
+        shape = x_tr.shape  # pic_nr x width x height x depth
         n_train = shape[0]  # len(image_generator)
-        n_valid = 100
-
-        image_datagen = ImageDataGenerator(featurewise_center=True,
-                                           featurewise_std_normalization=True,
-                                           width_shift_range=0.2,
-                                           height_shift_range=0.2,
-                                           vertical_flip=True,
-                                           zoom_range=0.0)
-
-        mask_datagen = ImageDataGenerator(width_shift_range=0.2,
-                                          height_shift_range=0.2,
-                                          vertical_flip=True,
-                                          zoom_range=0.0)
-
-        image_datagen.fit(x_sample, seed=seed)  # calculate mean and stddeviation of training sample for normalisation
-
-        flow_args_i = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='rgb')
-        flow_args_m = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='grayscale')
-
-        image_generator = image_datagen.flow_from_directory(img_dir, **flow_args_i)
-        mask_generator = mask_datagen.flow_from_directory(mas_dir, **flow_args_m)
-
-        img_valid_gen = image_datagen.flow_from_directory(valid_dir, **flow_args_i)
-        mask_valid_gen = mask_datagen.flow_from_directory(valid_dir, **flow_args_m)
-
-        train_generator = zip(image_generator, mask_generator)
-        valid_generator = zip(img_valid_gen, mask_valid_gen)
-
-        # # loading data with resizing it to size keeping aspect ratio
-        # x_tr, y_tr = util.load_img_label(os.path.join(train_dir, '*'))
-        # x_va, y_va = util.load_img_label(os.path.join(valid_dir, '*'))
-        # print('files loaded')
-        # # data normalisation
-        # img_mean, img_stdev = util.calc_mean_stdev2(x_tr)
-        # x_tr -= img_mean
-        # x_tr /= img_stdev
-        # x_va -= img_mean
-        # x_va /= img_stdev
-        #
-        # # data augmentation
-        # seq = iaa.Sequential([
-        #     #iaa.Fliplr(1),  # horizontally flip 50% of the images
-        #     iaa.GaussianBlur(sigma=(1.0, 2.0))  # blur images with a sigma of 0 to 3.0
-        # ])
-        # # x_tr = seq.augment_images(x_tr)
-        # print('data preprocessing finished')
-        #
-        # # print infos
-        # print_info(x_tr)
-        # print_info(y_tr)
+        n_class = 2
+        augmentation = True
+        subtract_pixel_mean = True
+        dir_type = 'flow'
 
         # define u-net
-        model = UNet(shape[1:], out_ch=1, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
-        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['accuracy', 'categorical_crossentropy'])
+        model = UNet(shape[1:], out_ch=n_class, start_ch=features_root, depth=layers, inc_rate=1, activation='relu',
+                     upconv=False, batchnorm=True)
+        model.compile(optimizer=Adam(lr=0.0005), loss='categorical_crossentropy', metrics=['acc', 'categorical_crossentropy'])
 
-        mc = ModelCheckpoint(os.path.join(self.model_dir, 'test.h5'), save_best_only=True, save_weights_only=True)
+        mc = ModelCheckpoint(os.path.join(self.model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
         es = EarlyStopping(patience=9)
         tb = TensorBoard(log_dir=self.model_dir)
 
-        # train unet with image_generator
-        model.fit_generator(train_generator,
-                            validation_data=valid_generator,
-                            steps_per_epoch=n_train / batch_size,
-                            validation_steps=n_valid / batch_size,
-                            epochs=epochs,
-                            verbose=1,
-                            callbacks=[mc, es, tb],
-                            use_multiprocessing=False,
-                            workers=3)
+        if augmentation:
 
-        # model.fit(x_tr, y_tr[..., 0, np.newaxis], validation_data=(x_va, y_va[..., 0, np.newaxis]),
-        #           epochs=epochs, batch_size=batch_size, callbacks=[mc, es, tb])
+            image_datagen = ImageDataGenerator(featurewise_center=False,
+                                               featurewise_std_normalization=False,
+                                               width_shift_range=0.2,
+                                               height_shift_range=0.2,
+                                               horizontal_flip=True,
+                                               zoom_range=0.0)
 
-    def predict_k_unet(self, test_img_dir, layers=4, features_root=64, channels=3, n_class=3):
-        x_va, y_va = util.laod_img_label(test_img_dir)
+            mask_datagen = ImageDataGenerator(width_shift_range=0.2,
+                                              height_shift_range=0.2,
+                                              horizontal_flip=True,
+                                              zoom_range=0.0)
 
-        model = UNet(x_va.shape[1:], out_ch=1, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
-        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=[f1])
+            image_datagen.fit(x_tr, seed=seed)  # calculate mean and stddeviation of training sample for normalisation
 
-        model.load_weights('weights/seg_fibula.h5')
-        p_va = model.predict(x_va, batch_size=8, verbose=1)
+            if dir_type == 'dir_flow':
+
+                flow_args_i = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='rgb')
+                flow_args_m = dict(target_size=shape[1:-1], class_mode=None, seed=seed, batch_size=batch_size, color_mode='grayscale')
+
+                image_generator = image_datagen.flow_from_directory(img_dir_tr, **flow_args_i)
+                mask_generator = mask_datagen.flow_from_directory(mask_dir_tr, **flow_args_m)
+
+                img_valid_gen = image_datagen.flow_from_directory(img_dir_va, **flow_args_i)
+                mask_valid_gen = mask_datagen.flow_from_directory(mask_dir_va, **flow_args_m)
+
+                n_valid = mask_valid_gen.n
+
+                train_generator = zip(image_generator, mask_generator)
+                valid_generator = zip(img_valid_gen, mask_valid_gen)
+
+            else:
+                print('flowtyp flow')
+                y_tr = util.load_masks(os.path.join(mask_dir_tr, '0'))  # load mask arrays
+                x_va = util.load_images(os.path.join(valid_dir, 'images', '0'))
+                y_va = util.load_masks(os.path.join(valid_dir, 'masks', '0'))
+                n_valid = x_va.shape[0]
+
+                # data normalisation
+                img_mean, img_stdev = util.calc_mean_stdev2(x_tr)
+                x_tr -= img_mean
+                x_tr /= img_stdev
+                x_va -= img_mean
+                x_va /= img_stdev
+
+                # create one-hot
+                y_tr = keras_utils.to_categorical(y_tr, n_class)
+                y_va = keras_utils.to_categorical(y_va, n_class)
+
+                # create image generator for online data augmentation
+                save_dir = os.path.join(self.model_dir, 'augmentations')
+                train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, save_to_dir=save_dir)
+                valid_generator = (x_va, y_va)
+
+            # # loading data with resizing it to size keeping aspect ratio
+            # # data augmentation
+            # seq = iaa.Sequential([
+            #     #iaa.Fliplr(1),  # horizontally flip 50% of the images
+            #     iaa.GaussianBlur(sigma=(1.0, 2.0))  # blur images with a sigma of 0 to 3.0
+            # ])
+            # # x_tr = seq.augment_images(x_tr)
+            # print('data preprocessing finished')
+
+            # train unet with image_generator
+            model.fit_generator(train_generator,
+                                validation_data=valid_generator,
+                                steps_per_epoch=n_train / batch_size,
+                                validation_steps=n_valid / batch_size,
+                                epochs=epochs,
+                                verbose=1,
+                                callbacks=[mc, es, tb],
+                                use_multiprocessing=False,
+                                workers=4)
+
+        else:
+            y_tr = util.load_masks(os.path.join(mask_dir_tr, '0'))  # load mask arrays
+            x_va = util.load_images(os.path.join(valid_dir, 'images', '0'))
+            y_va = util.load_masks(os.path.join(valid_dir, 'masks', '0'))
+
+            # Normalize data.
+            x_tr = x_tr.astype('float32') / 255
+            x_va = x_va.astype('float32') / 255
+            # img_mean, img_stdev = util.calc_mean_stdev2(x_tr)
+            # x_tr -= img_mean
+            # x_tr /= img_stdev
+            # x_va -= img_mean
+            # x_va /= img_stdev
+
+            # If subtract pixel mean is enabled
+            if subtract_pixel_mean:
+                x_train_mean = np.mean(x_tr, axis=0)
+                x_tr -= x_train_mean
+                x_va -= x_train_mean
+
+            # Convert class vectors to binary class matrices.
+            y_tr = keras_utils.to_categorical(y_tr, n_class)
+            y_va = keras_utils.to_categorical(y_va, n_class)
+
+            model.fit(x_tr, y_tr, validation_data=(x_va, y_va),
+                       epochs=epochs, batch_size=batch_size, shuffle=True, callbacks=[mc, es, tb])
+
+        scores = model.evaluate(x_va, y_va, verbose=1)
+
+        print('scores', scores)
+
+    def test_k_unet(self, test_img_dir, layers=4, features_root=64, batch_size=8, channels=3, n_class=2):
+
+        x_va = util.load_images(os.path.join(test_img_dir, 'images', '0'))
+        y_va = util.load_masks(os.path.join(test_img_dir, 'masks', '0'))
+        y_va = keras_utils.to_categorical(y_va, n_class)
+
+        model = UNet(x_va.shape[1:], out_ch=n_class, start_ch=features_root, depth=layers, inc_rate=1, activation='relu', upconv=False, batchnorm=True)
+        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+
+        model.load_weights(os.path.join(self.model_dir, 'model.h5'))
+        p_va = model.predict(x_va, batch_size=batch_size, verbose=1)
+
+        scores = model.evaluate(x_va, y_va, verbose=1)
+        util.store_prediction(p_va, x_va, self.pred_dir)
 
         print('DICE:      ' + str(f1_np(y_va, p_va)))
         print('IoU:       ' + str(iou_np(y_va, p_va)))
         print('Precision: ' + str(precision_np(y_va, p_va)))
         print('Recall:    ' + str(recall_np(y_va, p_va)))
         print('Error:     ' + str(error_np(y_va, p_va)))
+        print('Scores:    ', scores)
+
+    def predict_k_unet(self, test_img_dir, layers=4, features_root=64, batch_size=8, channels=3, n_class=2):
+        x_va = util.load_images(os.path.join(test_img_dir), sort=True)
+        model = UNet(x_va.shape[1:], out_ch=n_class, start_ch=features_root, depth=layers, inc_rate=1,
+                     activation='relu', upconv=False, batchnorm=True)
+        model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+
+        model.load_weights(os.path.join(self.model_dir, 'model.h5'))
+        p_va = model.predict(x_va, batch_size=batch_size, verbose=1)
+        util.store_prediction(p_va, x_va, self.pred_dir)
 
     def train_tf_unet(self, train_dir, n_class=3, layers=4, features_root=64, channels=3, batch_size=1, training_iters=10,
                    epochs=20, cost="cross_entropy", cost_kwargs={}):
@@ -401,71 +470,33 @@ if __name__ == '__main__':
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
 
-    video_file = os.path.join(file_base, 'videos', 'sydneyTrainStation.webm')
-    model_file = os.path.join(file_base, 'models', 'unet_c8l4b3t100e50f32_10')
-    model_file51 = os.path.join(file_base, 'models', 'unet_c5l4b3t100e40f128_flood')
-    model_file52 = os.path.join(file_base, 'models', 'unet_c5l5b3t100e40f64_flood')
-    model_file21 = os.path.join(file_base, 'models', 'unet_c2l4b3t100e40f128_flood')
-    model_file22 = os.path.join(file_base, 'models', 'unet_c2l5b3t100e40f64_flood')
-    model_file22 = os.path.join(file_base, 'models', 'unet_testc2l4_flood')
-    model_file_comb = os.path.join(file_base, 'models', 'unet_c5l4b3t100e40f128_comb')
+    video_file = os.path.join(file_base, 'videos', 'ChaskaAthleticPark.mp4')
     video_url = 'https://youtu.be/nrGBtQhAvo8'
-    pred_dir = os.path.join(file_base, 'predictions', 'cityscape_c8l4b3t100e5f64')
-    #train_dir = os.path.join(file_base, 'train', 'cityscape')
-    train_dir = 'E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape'
-    train_dir5 = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_5class\\images'
-    train_dir2 = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\images'
-    train_dir_comb = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__combine5class\\images'
-    train_dir_test = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
-    valid_dir_test = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\valid_test'
 
-    model_file_keras = os.path.join(file_base, 'models', 'flood_keras_c2l4b3e5f32')
+    model_file = os.path.join(file_base, 'models', 'flood_keras_c2l4b4e50f32_aug')
+
     train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
     valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
     test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
 
-    train_dir_gen = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
-    valid_dir_gen = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
+    pred_dir_flood = os.path.join(file_base, 'predictions', 'keras_pred_allnogen')
 
-    pred_dir_flood = os.path.join(file_base, 'predictions', 'raw_flood_')
-    img_pred_dir = os.path.join(file_base, 'train', 'cityscape')
+    test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
+    test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
 
-    cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir)
-
-
+    cfe = CCTVFloodExtraction(video_file, model_file)
 
     # importing video and model and do flood extraction
     # cfe.import_video(video_url)
-    # cfe.video2frame(resize_dims=(640, 360), max_frames=77)
+    # cfe.video2frame(resize_dims=(512, 512), keep_aspect=True, max_frames=77)
     # cfe.load_model()
     # cfe.flood_extraction(threshold=200)
 
-    # training and testing of unet
-    # cfe51 = CCTVFloodExtraction(video_file, model_file51)
-    # cfe51.train_unet(train_dir5, n_class=5, layers=4, features_root=128, batch_size=2, training_iters=100, epochs=40,
-    #               cost='cross_entropy')
-    #
-    # cfe52 = CCTVFloodExtraction(video_file, model_file52)
-    # cfe52.train_unet(train_dir5, n_class=5, layers=5, features_root=64, batch_size=2, training_iters=100, epochs=40,
-    #               cost='cross_entropy')
-    #
-    # cfe21 = CCTVFloodExtraction(video_file, model_file21)
-    # cfe21.train_unet(train_dir2, n_class=2, layers=4, features_root=128, batch_size=2, training_iters=100, epochs=40,
-    #               cost='cross_entropy')
-    #
-    # cfe22 = CCTVFloodExtraction(video_file, model_file22)
-    # cfe22.train_unet(train_dir2, n_class=2, layers=5, features_root=64, batch_size=2, training_iters=100, epochs=40,
-    #               cost='cross_entropy')
-
-    cfe_keras = CCTVFloodExtraction(video_file, model_file_keras)
-    cfe_keras.train_k_unet(train_dir_gen, valid_dir_gen, layers=4, features_root=32, batch_size=3, epochs=5,
+    cfe.train_k_unet(train_dir_flood, valid_dir_flood, layers=4, features_root=32, batch_size=4, epochs=50,
                   cost='cross_entropy')
+    cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
 
-    # cfecomb = CCTVFloodExtraction(video_file, model_file_comb)
-    # cfecomb.train_unet(train_dir_comb, n_class=5, layers=4, features_root=128, batch_size=4, training_iters=100, epochs=40,
-    #               cost='cross_entropy', cost_kwargs={'ignore_bg': True})
-
-    #cfe.test_unet(img_pred_dir, n_class=8, layers=4)
+    cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)
 
     # # move pictures from supervisely export
     # src_h = "C:\\Users\\kramersi\\Downloads\\all_flood_raw\\Flood*\\masks_human\\*.png"
@@ -495,4 +526,11 @@ if __name__ == '__main__':
     #     #print(file)
     #     os.remove(file)
     #     #shutil.move(file, dst)
+
+    # import glob
+    # for file in glob.glob(os.path.join(test_dir_elliot, '*')):
+    #     base, tail = os.path.split(file)
+    #     im = cv2.imread(file)
+    #     im_resize = util.resize_keep_aspect(im, 512)
+    #     util.save_image(im_resize, file)
 

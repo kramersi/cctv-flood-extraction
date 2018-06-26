@@ -25,6 +25,7 @@ import os
 import glob
 import shutil
 from keras.preprocessing import image as k_img
+import re
 
 def plot_prediction(x_test, y_test, prediction, save=False):
     import matplotlib
@@ -117,6 +118,27 @@ def create_overlay(prediction, image, name, output_dir):
                 cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
 
 
+def store_prediction(predictions, images, output_dir):
+    class_mapping = {0: [0, 0, 0], 1: [0, 0, 255]}
+    count = 0
+    for pred, img in zip(predictions, images):
+        best_pred = np.argmax(pred, axis=-1)  # take label of maximum probability
+
+        # # resize the color map to fit image
+        # img_crop = np.uint8(img[0, :, :, :] * 255)
+
+        # overlay cmap with image
+        prediction = np.repeat(best_pred[:, :, np.newaxis], 3, axis=-1)
+        # fill prediction with right rgb colors
+        for label, rgb in class_mapping.items():
+            prediction[prediction[:, :, 0] == label] = rgb
+
+        overlay_img = cv2.addWeighted(np.uint8(img), 0.8, np.uint8(prediction), 0.5, 0)
+        cv2.imwrite(os.path.join(output_dir, 'pred' + str(count) + '.png'),
+                    cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
+        count +=1
+
+
 def combine_img_prediction(data, gt, pred):
     """
     Combines the data, grouth thruth and the prediction into one rgb image
@@ -135,14 +157,33 @@ def combine_img_prediction(data, gt, pred):
     return img
 
 
-def load_images(img_path):
-    files = glob.glob(os.path.join(img_path, '*'))
+def load_masks(mask_path):
+    files = glob.glob(os.path.join(mask_path, '*'))
     first_img = k_img.load_img(files[0])
 
     n = len(files)
     w = first_img.width
     h = first_img.height
-    x = np.empty((n, w, h, 3))
+    x = np.empty((n, w, h))
+
+    for i, f in enumerate(files):
+        im = k_img.load_img(f)
+        x[i, :, :] = k_img.img_to_array(im)[:, :, 0].astype(np.int8)
+
+    return x
+
+
+def load_images(img_path, sort=False):
+    files = glob.glob(os.path.join(img_path, '*'))
+    if sort is True:
+        files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+    first_img = k_img.load_img(files[0])
+
+    n = len(files)
+    w = first_img.width
+    h = first_img.height
+    x = np.empty((n, h, w, 3))
+
     for i, f in enumerate(files):
         im = k_img.load_img(f)
         x[i, :, :, :] = k_img.img_to_array(im).astype(np.float32)
