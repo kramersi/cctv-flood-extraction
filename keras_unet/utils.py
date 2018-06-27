@@ -441,7 +441,7 @@ def f1_bce(y_true, y_pred):
 def error(y_true, y_pred):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
-    return K.sum(K.abs(y_true_f - y_pred_f)) / float(224*224)
+    return K.sum(K.abs(y_true_f - y_pred_f)) / float(512*512)
 
 def error_np(y_true, y_pred):
     return (abs(y_true - y_pred)).sum() / float(len(y_true.flatten()))

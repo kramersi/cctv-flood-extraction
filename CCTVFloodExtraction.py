@@ -125,7 +125,7 @@ class CCTVFloodExtraction(object):
 
             print('frame extracted from video')
 
-    def load_model(self, model_type='tensorflow'):
+    def load_model(self, model_type='keras'):
         """ loads neural network model of different types.
 
         The pretrained model must have following specifications:
@@ -153,13 +153,19 @@ class CCTVFloodExtraction(object):
             os.makedirs(self.pred_dir)
 
             if model_type == 'keras':
-                x_va = load_images(os.path.join(img_dir), sort=True)
+                # def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
+                imgs = load_images(self.frame_dir, sort=True)
 
-                self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
-                self.model.load_weights(os.path.join(model_dir, 'model.h5'))
+                # normalize
+                tr_mean = np.array([76.51, 75.41, 71.02])
+                tr_std = np.array([76.064, 75.23, 75.03])
+                imgs_norm = imgs - tr_mean
+                imgs_norm /= tr_std
 
-                p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
-                store_prediction(p_va, x_va, output_dir)
+                model = load_model(os.path.join(self.model_dir, 'model.h5'))
+
+                p_va = model.predict(imgs_norm, batch_size=4, verbose=1)
+                store_prediction(p_va, imgs, self.pred_dir)
 
             if model_type == 'tensorflow':
                 import tensorflow as tf

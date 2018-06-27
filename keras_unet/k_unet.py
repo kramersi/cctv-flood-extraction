@@ -4,7 +4,7 @@ import re
 import numpy as np
 import cv2
 
-from keras.models import Input, Model
+from keras.models import Input, Model, load_model
 from keras.layers import Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, UpSampling2D, Dropout, BatchNormalization
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
 from keras.optimizers import Adam
@@ -137,11 +137,27 @@ class UNet(object):
         self.up_conv = up_conv
         self.residuals = residual
 
+        self.tr_mean = None
+        self.tr_std = None
+
         # define model
         i = Input(shape=img_shape)
-        o = level_block(i, n_class, layers, inc_rate, activation, dropout, batch_norm, max_pool, up_conv, residual)
+        o = level_block(i, root_features, layers, inc_rate, activation, dropout, batch_norm, max_pool, up_conv, residual)
         o = Conv2D(n_class, 1, activation='sigmoid')(o)
         self.model = Model(inputs=i, outputs=o)
+
+    def normalize(self, x):
+        self.tr_mean = np.array([76.51, 75.41, 71.02])
+        self.tr_std = np.array([76.064, 75.23, 75.03])
+
+        if self.tr_mean is None:
+            print('mean and standard deviation of training pictures not calculated yet, calculating...')
+            self.tr_mean, self.tr_std = channel_mean_stdev(x)
+            print('mean: ', self.tr_mean, 'std: ', self.tr_std)
+
+        x_norm = (x - self.tr_mean) / self.tr_std
+
+        return x_norm
 
     def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=4, augmentation=True, normalisation=True):
         """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
@@ -151,14 +167,14 @@ class UNet(object):
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-        seed = 1
+        seed = 1234
 
         x_tr = load_images(os.path.join(train_dir, 'images', '0'))  # load training pictures in numpy array
         shape = x_tr.shape  # pic_nr x width x height x depth
         n_train = shape[0]  # len(image_generator)
 
         # compile model with optimizer and loss function
-        self.model.compile(optimizer=Adam(lr=0.001), loss='categorical_crossentropy',
+        self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss,
                       metrics=['acc', 'categorical_crossentropy'])
 
         # define callbacks
@@ -173,11 +189,8 @@ class UNet(object):
 
         # data normalisation
         if normalisation is True:
-            img_mean, img_stdev = channel_mean_stdev(x_tr)
-            x_tr -= img_mean
-            x_tr /= img_stdev
-            x_va -= img_mean
-            x_va /= img_stdev
+            x_tr = self.normalize(x_tr)
+            x_va = self.normalize(x_va)
 
         # create one-hot
         y_tr = to_categorical(y_tr, self.n_class)
@@ -187,16 +200,16 @@ class UNet(object):
 
             image_datagen = ImageDataGenerator(featurewise_center=False,
                                                featurewise_std_normalization=False,
-                                               width_shift_range=0.2,
-                                               height_shift_range=0.2,
+                                               width_shift_range=0.1,
+                                               height_shift_range=0.1,
                                                horizontal_flip=True,
                                                zoom_range=0.0)
 
             # calculate mean and stddeviation of training sample for normalisation (if featurwise center is true)
-            image_datagen.fit(x_tr, seed=seed)
+            # image_datagen.fit(x_tr, seed=seed)
 
             # create image generator for online data augmentation
-            train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size)
+            train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, shuffle=True, seed=seed)
             valid_generator = (x_va, y_va)
 
             # train unet with image_generator
@@ -210,23 +223,31 @@ class UNet(object):
                                      use_multiprocessing=False,
                                      workers=4)
         else:
-            self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size, shuffle=True, callbacks=[mc, es, tb])
+            self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
+                           shuffle=True, callbacks=[mc, es, tb])
 
         scores = self.model.evaluate(x_va, y_va, verbose=1)
         print('scores', scores)
 
-    def test(self, model_dir, test_img_dir, output_dir, batch_size=8):
+    def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None):
 
         x_va = load_images(os.path.join(test_img_dir, 'images', '0'))
         y_va = load_masks(os.path.join(test_img_dir, 'masks', '0'))
+
+        if train_dir is not None and self.tr_mean is None:
+            x_tr = load_images(train_dir)
+            self.normalize(x_tr)
+
+        x_va_norm = self.normalize(x_va)
         y_va = to_categorical(y_va, self.n_class)
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
-
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
-        p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
 
-        scores = self.model.evaluate(x_va, y_va, verbose=1)
+        # model = load_model(os.path.join(model_dir, 'model.h5'))
+        p_va = self.model.predict(x_va_norm, batch_size=batch_size, verbose=1)
+
+        scores = self.model.evaluate(x_va_norm, y_va, verbose=1)
         store_prediction(p_va, x_va, output_dir)
 
         print('DICE:      ' + str(f1_np(y_va, p_va)))
@@ -236,14 +257,27 @@ class UNet(object):
         print('Error:     ' + str(error_np(y_va, p_va)))
         print('Scores:    ', scores)
 
-    def predict(self, model_dir, img_dir, output_dir, batch_size=4):
+    def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
         x_va = load_images(os.path.join(img_dir), sort=True)
+        # self.tr_mean = np.array([76.51, 75.41, 71.02])
+        # self.tr_std = np.array([76.064, 75.23, 75.03])
+
+        if train_dir is not None and self.tr_mean is None:
+            x_tr = load_images(os.path.join(train_dir))
+            self.normalize(x_tr)
+
+        # pre-process
+        if self.tr_mean is not None:
+            x_va_norm = self.normalize(x_va)
+
+        # model = load_model(os.path.join(model_dir, 'model.h5'))
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
 
-        p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
+        p_va = self.model.predict(x_va_norm, batch_size=batch_size, verbose=1)
         store_prediction(p_va, x_va, output_dir)
+
 
 if __name__ == '__main__':
     # for apple
@@ -252,17 +286,25 @@ if __name__ == '__main__':
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
 
-    model_name = 'flood_c2l4b4e50f32_test'
+    model_name = 'corr_c2l4b4e15f32_noaug_f1'
     model_dir = os.path.join(file_base, 'models', model_name)
+
+    if not os.path.isdir(model_dir):
+        os.mkdir(model_dir)
 
     train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
     valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
     test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
 
-    pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
+    pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
 
     test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
     test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
+    pred_dir = os.path.join(file_base, 'predictions', model_name)
+
+    if not os.path.isdir(pred_dir):
+        os.mkdir(pred_dir)
+
     pred_dir_elliot = os.path.join(file_base, 'predictions', model_name, 'elliotCityFlood')
     pred_dir_athletic = os.path.join(file_base, 'predictions', model_name, 'ChaskaAthleticPark')
 
@@ -273,9 +315,9 @@ if __name__ == '__main__':
         os.mkdir(pred_dir_athletic)
 
     img_shape = (512, 512, 3)
-    unet = UNet(img_shape, root_features=32, layers=4, batch_norm=True)
+    unet = UNet(img_shape, root_features=64, layers=4, batch_norm=True)
 
-    # unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=4, epochs=5)
+    unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=4, epochs=15, augmentation=True)
     unet.test(model_dir, test_dir_flood, pred_dir_flood)
-    unet.predict(model_dir, test_dir_athletic, pred_dir_athletic, batch_size=32)
+    unet.predict(model_dir, test_dir_athletic, pred_dir_athletic, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images', '0'))
 
