@@ -3,6 +3,7 @@ import glob
 import re
 import numpy as np
 import cv2
+import pandas as pd
 
 from keras.models import Input, Model, load_model
 from keras.layers import Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, UpSampling2D, Dropout, BatchNormalization
@@ -59,19 +60,23 @@ def load_masks(path):
     return x
 
 
-def load_images(path, sort=False):
+def load_images(path, sort=False, target_size=None):
     files = glob.glob(os.path.join(path, '*'))
     if sort is True:
         files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
     first_img = load_img(files[0])
 
     n = len(files)
-    w = first_img.width
-    h = first_img.height
+    if target_size is not None:
+        h = target_size[0]
+        w = target_size[1]
+    else:
+        w = first_img.width
+        h = first_img.height
     x = np.empty((n, h, w, 3))
 
     for i, f in enumerate(files):
-        im = load_img(f)
+        im = load_img(f, target_size=target_size)
         x[i, :, :, :] = img_to_array(im).astype(np.float32)
 
     return x
@@ -135,7 +140,7 @@ class UNet(object):
         self.batch_norm = batch_norm
         self.max_pool = max_pool
         self.up_conv = up_conv
-        self.residuals = residual
+        self.residual = residual
 
         self.tr_mean = None
         self.tr_std = None
@@ -147,8 +152,8 @@ class UNet(object):
         self.model = Model(inputs=i, outputs=o)
 
     def normalize(self, x):
-        self.tr_mean = np.array([76.51, 75.41, 71.02])
-        self.tr_std = np.array([76.064, 75.23, 75.03])
+        self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
+        self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
 
         if self.tr_mean is None:
             print('mean and standard deviation of training pictures not calculated yet, calculating...')
@@ -156,7 +161,8 @@ class UNet(object):
             print('mean: ', self.tr_mean, 'std: ', self.tr_std)
 
         x_norm = (x - self.tr_mean) / self.tr_std
-
+        # x_norm = (x - np.amin(x)) / np.amax(x)
+        # img_eq = exposure.equalize_hist(x_norm)
         return x_norm
 
     def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=4, augmentation=True, normalisation=True):
@@ -167,9 +173,9 @@ class UNet(object):
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-        seed = 1234
+        seed = 1234  # Provide the same seed and keyword arguments to the fit and flow methods
 
-        x_tr = load_images(os.path.join(train_dir, 'images', '0'))  # load training pictures in numpy array
+        x_tr = load_images(os.path.join(train_dir, 'images'))  # load training pictures in numpy array
         shape = x_tr.shape  # pic_nr x width x height x depth
         n_train = shape[0]  # len(image_generator)
 
@@ -182,9 +188,9 @@ class UNet(object):
         es = EarlyStopping(patience=9)
         tb = TensorBoard(log_dir=model_dir)
 
-        y_tr = load_masks(os.path.join(train_dir, 'masks', '0'))  # load mask arrays
-        x_va = load_images(os.path.join(valid_dir, 'images', '0'))
-        y_va = load_masks(os.path.join(valid_dir, 'masks', '0'))
+        y_tr = load_masks(os.path.join(train_dir, 'masks'))  # load mask arrays
+        x_va = load_images(os.path.join(valid_dir, 'images'))
+        y_va = load_masks(os.path.join(valid_dir, 'masks'))
         n_valid = x_va.shape[0]
 
         # data normalisation
@@ -197,19 +203,48 @@ class UNet(object):
         y_va = to_categorical(y_va, self.n_class)
 
         if augmentation:
+            data_gen_args = dict(featurewise_center=False,
+                                 featurewise_std_normalization=False,
+                                 rotation_range=0,
+                                 width_shift_range=0.2,
+                                 height_shift_range=0.2,
+                                 # zoom_range=[0.8, 1],
+                                 horizontal_flip=True,
+                                 img_aug=False,
+                                 fill_mode='reflect')
 
-            image_datagen = ImageDataGenerator(featurewise_center=False,
-                                               featurewise_std_normalization=False,
-                                               width_shift_range=0.1,
-                                               height_shift_range=0.1,
-                                               horizontal_flip=True,
-                                               zoom_range=0.0)
+            # use affinity transform for masks
+            mask_datagen = ImageDataGenerator(**data_gen_args)
 
-            # calculate mean and stddeviation of training sample for normalisation (if featurwise center is true)
-            # image_datagen.fit(x_tr, seed=seed)
+            # add picture worsening on images not on masks
+            data_gen_args['img_aug'] = False
+            data_gen_args['blur_range'] = [0.0, 1.0],
+            data_gen_args['contrast_range'] = [0.7, 1.3],
+            data_gen_args['grayscale_range'] = [0, 0.5],
 
+            image_datagen = ImageDataGenerator(**data_gen_args)
+
+            ## fit the augmentation model to the images and masks with the same seed
+            image_datagen.fit(x_tr, augment=True, seed=seed)
+            mask_datagen.fit(y_tr, augment=True, seed=seed)
             # create image generator for online data augmentation
-            train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, shuffle=True, seed=seed)
+            aug_path = os.path.join(model_dir, 'augmentations')
+            image_generator = image_datagen.flow(
+                x_tr,
+                batch_size=batch_size,
+                shuffle=True,
+                seed=seed)
+                # save_to_dir=aug_path)
+            ## set the parameters for the data to come from (masks)
+            mask_generator = mask_datagen.flow(
+                y_tr,
+                batch_size=batch_size,
+                shuffle=True,
+                seed=seed)
+
+            # combine generators into one which yields image and masks
+            train_generator = zip(image_generator, mask_generator)
+            #train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, shuffle=True, seed=seed, save_to_dir=aug_path)
             valid_generator = (x_va, y_va)
 
             # train unet with image_generator
@@ -231,8 +266,10 @@ class UNet(object):
 
     def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None):
 
-        x_va = load_images(os.path.join(test_img_dir, 'images', '0'))
-        y_va = load_masks(os.path.join(test_img_dir, 'masks', '0'))
+        x_va = load_images(os.path.join(test_img_dir, 'images'))
+        y_va = load_masks(os.path.join(test_img_dir, 'masks'))
+        self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
+        self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
 
         if train_dir is not None and self.tr_mean is None:
             x_tr = load_images(train_dir)
@@ -249,6 +286,10 @@ class UNet(object):
 
         scores = self.model.evaluate(x_va_norm, y_va, verbose=1)
         store_prediction(p_va, x_va, output_dir)
+        res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
+               'Recall': [recall_np(y_va, p_va)], 'Error':[error_np(y_va, p_va)]}
+
+        pd.DataFrame(res).to_csv(os.path.join(model_dir, 'result.csv'))
 
         print('DICE:      ' + str(f1_np(y_va, p_va)))
         print('IoU:       ' + str(iou_np(y_va, p_va)))
@@ -258,12 +299,12 @@ class UNet(object):
         print('Scores:    ', scores)
 
     def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
-        x_va = load_images(os.path.join(img_dir), sort=True)
-        # self.tr_mean = np.array([76.51, 75.41, 71.02])
-        # self.tr_std = np.array([76.064, 75.23, 75.03])
+        x_va = load_images(os.path.join(img_dir), sort=True, target_size=(512, 512))
+        self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
+        self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
 
         if train_dir is not None and self.tr_mean is None:
-            x_tr = load_images(os.path.join(train_dir))
+            x_tr = load_images(os.path.join(train_dir), sort=True, target=(512, 512))
             self.normalize(x_tr)
 
         # pre-process
@@ -285,39 +326,49 @@ if __name__ == '__main__':
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
+    model_names = ['cflood_c2l4b2e20f64_dr050', 'cflood_c2l4b2e20f64_dr100', 'cflood_c2l4b2e20f64_dr075']
+    aug = [True, True, True]
+    feat = [64, 64, 64]
+    ep = [20, 20, 20]
+    lay = [4, 4, 4]
+    drop = [0.5, 1.0, 0.75]
 
-    model_name = 'corr_c2l4b4e15f32_noaug_f1'
-    model_dir = os.path.join(file_base, 'models', model_name)
+    for i, model_name in enumerate(model_names):
+        if i == 0:
+            model_dir = os.path.join(file_base, 'models', model_name)
 
-    if not os.path.isdir(model_dir):
-        os.mkdir(model_dir)
+            if not os.path.isdir(model_dir):
+                os.mkdir(model_dir)
 
-    train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
-    valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
-    test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
+            train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\train'
+            valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\validate'
+            test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
 
-    pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
+            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
 
-    test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
-    test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
-    pred_dir = os.path.join(file_base, 'predictions', model_name)
+            test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
+            test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
+            test_dir_floodx = os.path.join(file_base, 'frames', 'FloodX')
 
-    if not os.path.isdir(pred_dir):
-        os.mkdir(pred_dir)
+            pred_dir = os.path.join(file_base, 'predictions', model_name)
 
-    pred_dir_elliot = os.path.join(file_base, 'predictions', model_name, 'elliotCityFlood')
-    pred_dir_athletic = os.path.join(file_base, 'predictions', model_name, 'ChaskaAthleticPark')
+            if not os.path.isdir(pred_dir):
+                os.mkdir(pred_dir)
 
-    if not os.path.isdir(pred_dir_flood):
-        os.mkdir(pred_dir_flood)
+            pred_dir_elliot = os.path.join(file_base, 'predictions', model_name, 'elliotCityFlood')
+            pred_dir_athletic = os.path.join(file_base, 'predictions', model_name, 'ChaskaAthleticPark')
+            pred_dir_floodx = os.path.join(file_base, 'predictions', model_name, 'FloodX')
 
-    if not os.path.isdir(pred_dir_athletic):
-        os.mkdir(pred_dir_athletic)
+            if not os.path.isdir(pred_dir_flood):
+                os.mkdir(pred_dir_flood)
 
-    img_shape = (512, 512, 3)
-    unet = UNet(img_shape, root_features=64, layers=4, batch_norm=True)
+            if not os.path.isdir(pred_dir_elliot):
+                os.mkdir(pred_dir_elliot)
 
-    unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=4, epochs=15, augmentation=True)
-    unet.test(model_dir, test_dir_flood, pred_dir_flood)
-    unet.predict(model_dir, test_dir_athletic, pred_dir_athletic, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images', '0'))
+            img_shape = (512, 512, 3)
+            unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i])
+
+            #unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=2, epochs=ep[i], augmentation=aug[i])
+            unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=1)
+            unet.predict(model_dir, test_dir_elliot, pred_dir_elliot, batch_size=1, train_dir=os.path.join(train_dir_flood, 'images', '0'))
 

@@ -311,6 +311,14 @@ def resize_keep_aspect(im, desired_size):
     return cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
 
 
+def create_zero_mask(file, dim=512, suffix='_label'):
+    im = np.full((dim, dim), 0)
+    base, tail = os.path.split(file)
+    name = os.path.splitext(tail)[0] + suffix + '.png'
+    file_path = os.path.join(base, name)
+    cv2.imwrite(file_path, im)
+
+
 def convert_images(path, src='jpg', dst='png'):
     glob_path = os.path.join(path, '*.' + src)
     for j in glob.glob(glob_path):

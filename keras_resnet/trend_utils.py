@@ -9,15 +9,18 @@ def combine_pics(img_dir):
     images = []
     img_combs = []
     labels = []
+    label_combs = []
     for f in files:
         base, tail = os.path.split(f)
         images.append(load_images(f))
-        labels.append(tail.split('_')[0])
-    for img1 in images:
-        for img2 in images:
-            img_combs.append(np.h_stack(img1, img2))
+        labels.append(int(tail.split('_')[-1]))
 
-    return img_combs
+    for img1, lab1 in zip(images, labels):
+        for img2, lab2 in zip(images, labels):
+            img_combs.append(np.h_stack(img1, img2))
+            label_combs.append(np.sign(lab2-lab1))
+
+    return np.array(img_combs), np.array(label_combs)
 
 
 def extract_labels(p1, p2):

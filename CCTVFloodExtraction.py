@@ -292,11 +292,11 @@ if __name__ == '__main__':
     # cfe.load_model()
     # cfe.flood_extraction(threshold=200)
 
-    cfe.train_k_unet(train_dir_flood, valid_dir_flood, layers=4, features_root=32, batch_size=4, epochs=50,
-                  cost='cross_entropy')
-    cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
-
-    cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)
+    # cfe.train_k_unet(train_dir_flood, valid_dir_flood, layers=4, features_root=32, batch_size=4, epochs=50,
+    #               cost='cross_entropy')
+    # cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
+    #
+    # cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)
 
     # # move pictures from supervisely export
     # src_h = "C:\\Users\\kramersi\\Downloads\\all_flood_raw\\Flood*\\masks_human\\*.png"
@@ -318,19 +318,22 @@ if __name__ == '__main__':
     # util.rename_pics(dst_la + '*')
     # util.convert_images(dst_img, src='jpeg', dst='png')
 
-    # src = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\test\\*.png'
-    # dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_raw\\annotations\\Flood_*_*.json'
-    # mask_suffix = '_label.png'
+    src = 'E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\*_*_*[0-9].png'
+    dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\cityscape\\*'
+    mask_suffix = '_label.png'
     # import glob
-    # for file in glob.glob(dst):
-    #     #print(file)
-    #     os.remove(file)
-    #     #shutil.move(file, dst)
+    # for file in glob.glob(src):
+    #     # print(file)
+    #     # os.remove(file)
+    #     shutil.move(file, dst)
 
-    # import glob
-    # for file in glob.glob(os.path.join(test_dir_elliot, '*')):
-    #     base, tail = os.path.split(file)
-    #     im = cv2.imread(file)
-    #     im_resize = util.resize_keep_aspect(im, 512)
-    #     util.save_image(im_resize, file)
+    import glob
+    for file in glob.glob(dst):
+        # base, tail = os.path.split(file)
+        # im = cv2.imread(file)
+        # im_resize = util.resize_keep_aspect(im, 512)
+        # os.remove(file)
+        # cv2.imwrite(file, im_resize)
+        # util.save_image(im_resize, file)
+        util.create_zero_mask(file)
 
