@@ -79,7 +79,7 @@ def load_images(path, sort=False, target_size=None):
         im = load_img(f, target_size=target_size)
         x[i, :, :, :] = img_to_array(im).astype(np.float32)
 
-    return x
+    return x.astype('float32')
 
 
 def channel_mean_stdev(img):
@@ -152,15 +152,15 @@ class UNet(object):
         self.model = Model(inputs=i, outputs=o)
 
     def normalize(self, x):
-        self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
-        self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
+        self.tr_mean = np.array([69.7399, 69.8885, 65.1602])
+        self.tr_std = np.array([72.9841, 72.3374, 71.6508])
 
         if self.tr_mean is None:
             print('mean and standard deviation of training pictures not calculated yet, calculating...')
             self.tr_mean, self.tr_std = channel_mean_stdev(x)
             print('mean: ', self.tr_mean, 'std: ', self.tr_std)
 
-        x_norm = (x - self.tr_mean) / self.tr_std
+        x_norm = (x - self.tr_mean.astype('float32')) / self.tr_std.astype('float32')
         # x_norm = (x - np.amin(x)) / np.amax(x)
         # img_eq = exposure.equalize_hist(x_norm)
         return x_norm
@@ -208,7 +208,7 @@ class UNet(object):
                                  rotation_range=0,
                                  width_shift_range=0.2,
                                  height_shift_range=0.2,
-                                 # zoom_range=[0.8, 1],
+                                 zoom_range=(0.5, 1),
                                  horizontal_flip=True,
                                  img_aug=False,
                                  fill_mode='reflect')
@@ -217,10 +217,10 @@ class UNet(object):
             mask_datagen = ImageDataGenerator(**data_gen_args)
 
             # add picture worsening on images not on masks
-            data_gen_args['img_aug'] = False
-            data_gen_args['blur_range'] = [0.0, 1.0],
-            data_gen_args['contrast_range'] = [0.7, 1.3],
-            data_gen_args['grayscale_range'] = [0, 0.5],
+            data_gen_args['img_aug'] = True
+            data_gen_args['blur_range'] = (0.0, 1.2)
+            # data_gen_args['contrast_range'] = (0.9, 1.1)
+            # data_gen_args['grayscale_range'] = (0.0, 0.1)
 
             image_datagen = ImageDataGenerator(**data_gen_args)
 
@@ -254,21 +254,21 @@ class UNet(object):
                                      validation_steps=n_valid / batch_size,
                                      epochs=epochs,
                                      verbose=1,
-                                     callbacks=[mc, es, tb],
+                                     callbacks=[mc, tb],
                                      use_multiprocessing=False,
                                      workers=4)
         else:
             self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
                            shuffle=True, callbacks=[mc, es, tb])
 
-        scores = self.model.evaluate(x_va, y_va, verbose=1)
+        scores = self.model.evaluate(x_va, y_va, batch_size=batch_size, verbose=1)
         print('scores', scores)
 
     def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None):
 
         x_va = load_images(os.path.join(test_img_dir, 'images'))
         y_va = load_masks(os.path.join(test_img_dir, 'masks'))
-        self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
+        self.tr_mean = np.array([69.739, 69.888, 65.160])
         self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
 
         if train_dir is not None and self.tr_mean is None:
@@ -284,7 +284,7 @@ class UNet(object):
         # model = load_model(os.path.join(model_dir, 'model.h5'))
         p_va = self.model.predict(x_va_norm, batch_size=batch_size, verbose=1)
 
-        scores = self.model.evaluate(x_va_norm, y_va, verbose=1)
+        scores = self.model.evaluate(x_va_norm, y_va, batch_size=batch_size, verbose=1)
         store_prediction(p_va, x_va, output_dir)
         res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
                'Recall': [recall_np(y_va, p_va)], 'Error':[error_np(y_va, p_va)]}
@@ -297,6 +297,18 @@ class UNet(object):
         print('Recall:    ' + str(recall_np(y_va, p_va)))
         print('Error:     ' + str(error_np(y_va, p_va)))
         print('Scores:    ', scores)
+
+    def fine_tune(self, model_dir, img_dir):
+
+        self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+        self.model.load_weights(os.path.join(model_dir, 'model.h5'))
+
+        for layer in self.model.layers[:-4]:
+            layer.trainable = False
+
+        # Check the trainable status of the individual layers
+        for layer in self.model.layers:
+            print(layer, layer.trainable)
 
     def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
         x_va = load_images(os.path.join(img_dir), sort=True, target_size=(512, 512))
@@ -326,15 +338,15 @@ if __name__ == '__main__':
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['cflood_c2l4b2e20f64_dr050', 'cflood_c2l4b2e20f64_dr100', 'cflood_c2l4b2e20f64_dr075']
+    model_names = ['cflood_c2l3b3e40f32_dr075caugi2', 'cflood_c2l3b3e40f32_dr075caugi2res', 'cflood_c2l5b3e40f16_dr075caugi2res']
     aug = [True, True, True]
-    feat = [64, 64, 64]
-    ep = [20, 20, 20]
-    lay = [4, 4, 4]
-    drop = [0.5, 1.0, 0.75]
+    feat = [32, 32, 16]
+    ep = [40, 60, 60]
+    lay = [3, 3, 5]
+    drop = [0.75, 0.75, 0.75]
 
     for i, model_name in enumerate(model_names):
-        if i == 0:
+        if i == 2:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
@@ -345,30 +357,42 @@ if __name__ == '__main__':
             test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
 
             pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
-
-            test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
-            test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
-            test_dir_floodx = os.path.join(file_base, 'frames', 'FloodX')
-
-            pred_dir = os.path.join(file_base, 'predictions', model_name)
-
-            if not os.path.isdir(pred_dir):
-                os.mkdir(pred_dir)
-
-            pred_dir_elliot = os.path.join(file_base, 'predictions', model_name, 'elliotCityFlood')
-            pred_dir_athletic = os.path.join(file_base, 'predictions', model_name, 'ChaskaAthleticPark')
-            pred_dir_floodx = os.path.join(file_base, 'predictions', model_name, 'FloodX')
-
             if not os.path.isdir(pred_dir_flood):
                 os.mkdir(pred_dir_flood)
 
-            if not os.path.isdir(pred_dir_elliot):
-                os.mkdir(pred_dir_elliot)
+            # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
+            # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
+            # test_dir_floodx = os.path.join(file_base, 'frames', 'FloodX')
+
+            pred_dir = os.path.join(file_base, 'predictions', model_name)
+            if not os.path.isdir(pred_dir):
+                os.mkdir(pred_dir)
+
+            test_dir = os.path.join(file_base, 'frames', '*')
+
+            # pred_dir_elliot = os.path.join(file_base, 'predictions', model_name, 'elliotCityFlood')
+            # pred_dir_athletic = os.path.join(file_base, 'predictions', model_name, 'ChaskaAthleticPark')
+            # pred_dir_floodx = os.path.join(file_base, 'predictions', model_name, 'FloodX')
+
+            # test_dirs = [test_dir_elliot, test_dir_athletic, test_dir_floodx]
+            # pred_dirs = [pred_dir_elliot, pred_dir_athletic, pred_dir_floodx]
+
+            # for pred_dir in pred_dirs:
+            #     if not os.path.isdir(pred_dir):
+            #         os.mkdir(pred_dir)
 
             img_shape = (512, 512, 3)
-            unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i])
+            unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=True)
 
-            #unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=2, epochs=ep[i], augmentation=aug[i])
-            unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=1)
-            unet.predict(model_dir, test_dir_elliot, pred_dir_elliot, batch_size=1, train_dir=os.path.join(train_dir_flood, 'images', '0'))
+            unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=3, epochs=ep[i], augmentation=aug[i])
+            unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
+
+            for test in glob.glob(test_dir):  # test for all frames in directory
+                base, tail = os.path.split(test)
+                pred = os.path.join(pred_dir, tail)
+
+                if not os.path.isdir(pred):
+                    os.mkdir(pred)
+
+                unet.predict(model_dir, test, pred, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images'))
 

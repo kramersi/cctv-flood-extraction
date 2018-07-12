@@ -262,6 +262,51 @@ class CCTVFloodExtraction(object):
         plt.savefig(plot_file_path)
         print('flood signal extracted')
 
+    def create_prediction_movie(self, img_path, pred_path, video_path, trend_path=None, size=(512, 512), fps=5, margin=30, vid_format='DIVX'):
+        """ crate a movie by showing images and prediction as well as the trend compared with groundtruth
+
+        """
+        # collect all image paths
+        img_paths = glob.glob(os.path.join(img_path, '*'))
+        pred_paths = glob.glob(os.path.join(pred_path, '*'))
+
+        # read trend and resize
+        if trend_path is not None:
+            trend = cv2.imread(trend_path)
+            cv2.resize(trend, (size[0], size[1]*2 + margin))
+
+        # characteristics of movie
+        width = 2 * size[1] + margin  # width of whole movie
+        line_y1 = size[0] + margin
+        line_y2 = 2 * size[0] + margin
+        n_img = len(img_paths)
+
+        # define video instance
+        fourcc = cv2.VideoWriter_fourcc(*vid_format)
+        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (512, width), True)
+
+        # iterate over each image pair and concatenate toghether and put to video
+        for i, (img_path, p_path) in enumerate(zip(img_paths, pred_paths)):
+            # read images
+            img = cv2.imread(img_path)
+            pred = cv2.imread(p_path)
+
+            # concatenate pictures togehter with black margins
+            space_h = np.full((margin, size[1], 3), 0).astype('uint8')
+            composition = np.concatenate((img, space_h, pred), axis=0)
+
+            if trend_path is not None:
+                space_w = np.full((width, margin, 3), 0)
+                composition = np.concatenate((composition, space_w, trend), axis=1)
+
+                # draw line on trend graph at position x
+                line_x = i / n_img
+                cv2.line(composition, (line_x, line_y1), (line_x, line_y2), (0, 0, 255), 5)
+
+            vid.write(composition)  # write to video instance
+
+        vid.release()
+
 
 if __name__ == '__main__':
     # for apple
@@ -271,7 +316,24 @@ if __name__ == '__main__':
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
 
     video_file = os.path.join(file_base, 'videos', 'ChaskaAthleticPark.mp4')
+
     video_url = 'https://youtu.be/nrGBtQhAvo8'
+
+    # video urls from matthew
+    videos = {
+        'url': ['https://www.youtube.com/watch?v=LNVCCrVesgg',  # garden long  12:22
+            'https://www.youtube.com/watch?v=ZOpWO7rJbtU',  # garage 19:39
+            'https://www.youtube.com/watch?v=EXhE_VEJdMY',  # living room 2:07
+            'https://www.youtube.com/watch?v=E10us74vZJI',  # roll stairs 0:55
+            'https://www.youtube.com/watch?v=6jOxnUkKP8Q',  # creek flood 0:49
+            'https://www.youtube.com/watch?v=h-nZGDJSLuk',  # lockwitz 12:05
+            'https://www.youtube.com/watch?v=1T68t_QKsuc',  # spinerstrasse 0:15
+            'https://www.youtube.com/watch?v=hxcnMQn5zCA',  # hamburg 14:03
+            ],
+        'names': ['garden', 'garage', 'living_room', 'roll_stairs', 'creek_flood', 'lockwitz', 'spinerstrasse', 'hamburg'],
+        'sec': [12*60+22, 19*60+39, 2*60+7, 55, 49, 12*60+5, 12, 14*60+3]
+    }
+
 
     model_file = os.path.join(file_base, 'models', 'flood_keras_c2l4b4e50f32_aug')
 
@@ -285,6 +347,12 @@ if __name__ == '__main__':
     test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
 
     cfe = CCTVFloodExtraction(video_file, model_file)
+    # import glob
+    # movie_path = os.path.join(file_base, 'videos', '*')
+    #
+    # for video_file in glob.glob(movie_path):
+    #     cfe = CCTVFloodExtraction(video_file, model_file)
+    #     cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
 
     # importing video and model and do flood extraction
     # cfe.import_video(video_url)
@@ -297,6 +365,15 @@ if __name__ == '__main__':
     # cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
     #
     # cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)
+    import glob
+    img_dir = os.path.join(file_base, 'frames', 'RollStairsTimeLapse')
+    pred_dir = os.path.join(file_base, 'predictions', 'cflood_c2l3b3e40f32_dr075caugi2res', 'RollStairsTimeLapse')
+    vid_dir = 'pred_vid.avi'
+
+    if not os.path.isdir(vid_dir):
+        os.mkdir(vid_dir)
+
+    cfe.create_prediction_movie(img_dir, pred_dir, vid_dir)
 
     # # move pictures from supervisely export
     # src_h = "C:\\Users\\kramersi\\Downloads\\all_flood_raw\\Flood*\\masks_human\\*.png"
@@ -318,22 +395,22 @@ if __name__ == '__main__':
     # util.rename_pics(dst_la + '*')
     # util.convert_images(dst_img, src='jpeg', dst='png')
 
-    src = 'E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\*_*_*[0-9].png'
-    dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\cityscape\\*'
-    mask_suffix = '_label.png'
+    # src = 'E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\*_*_*[0-9].png'
+    # dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\cityscape\\*'
+    # mask_suffix = '_label.png'
     # import glob
     # for file in glob.glob(src):
     #     # print(file)
     #     # os.remove(file)
     #     shutil.move(file, dst)
 
-    import glob
-    for file in glob.glob(dst):
-        # base, tail = os.path.split(file)
-        # im = cv2.imread(file)
-        # im_resize = util.resize_keep_aspect(im, 512)
-        # os.remove(file)
-        # cv2.imwrite(file, im_resize)
-        # util.save_image(im_resize, file)
-        util.create_zero_mask(file)
+    # import glob
+    # for file in glob.glob(dst):
+    #     # base, tail = os.path.split(file)
+    #     # im = cv2.imread(file)
+    #     # im_resize = util.resize_keep_aspect(im, 512)
+    #     # os.remove(file)
+    #     # cv2.imwrite(file, im_resize)
+    #     # util.save_image(im_resize, file)
+    #     util.create_zero_mask(file)
 
