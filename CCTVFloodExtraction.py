@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
-from imgaug import augmenters as iaa
+#from imgaug import augmenters as iaa
 import glob
 import shutil
-from tf_unet import unet, util, image_util
+#from tf_unet import unet, util, image_util
 from keras_unet.utils import *
 from keras_unet.k_unet import load_images, store_prediction
 
@@ -255,14 +255,12 @@ class CCTVFloodExtraction(object):
         data.to_csv(signal_file_path)
 
         # plot flood_index and store it.
-        data.plot()
-        plt.xlabel('index (#)')
-        plt.ylabel('flood index (-)')
+        data.plot(fig_size=(10, 21), x='index (#)', y='flood index (-)')
         plt.show()
-        plt.savefig(plot_file_path)
+        plt.savefig(plot_file_path, bbox_inches='tight')
         print('flood signal extracted')
 
-    def create_prediction_movie(self, img_path, pred_path, video_path, trend_path=None, size=(512, 512), fps=5, margin=30, vid_format='DIVX'):
+    def create_prediction_movie(self, img_path, pred_path, video_path, trend_path=None, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
         """ crate a movie by showing images and prediction as well as the trend compared with groundtruth
 
         """
@@ -283,10 +281,10 @@ class CCTVFloodExtraction(object):
         n_img = len(img_paths)
 
         # define video instance
-        # fourcc = cv2.VideoWriter_fourcc(*vid_format)
-        # vid = cv2.VideoWriter(video_path, fourcc, float(fps), (512, width), True)
+        fourcc = cv2.VideoWriter_fourcc(*vid_format)
+        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (height, width), True)
 
-        vid = cv2.VideoWriter(video_path, -1, 1, (width, height))
+        #vid = cv2.VideoWriter(video_path, -1, 1, (width, height))
 
         # iterate over each image pair and concatenate toghether and put to video
         for i, (img_path, p_path) in enumerate(zip(img_paths, pred_paths)):
@@ -314,10 +312,10 @@ class CCTVFloodExtraction(object):
 
 if __name__ == '__main__':
     # for apple
-    #file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
+    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
-    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
+    #file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
 
     video_file = os.path.join(file_base, 'videos', 'ChaskaAthleticPark.mp4')
 
@@ -372,10 +370,10 @@ if __name__ == '__main__':
     import glob
     img_dir = os.path.join(file_base, 'frames', 'RollStairsTimeLapse')
     pred_dir = os.path.join(file_base, 'predictions', 'cflood_c2l3b3e40f32_dr075caugi2res', 'RollStairsTimeLapse')
-    vid_dir = 'predvid.avi'
+    vid_dir = os.path.join(file_base, 'predictions', 'predvid.avi')
 
-    if not os.path.isdir(vid_dir):
-        os.mkdir(vid_dir)
+    # if not os.path.isdir(vid_dir):
+    #     os.mkdir(vid_dir)
 
     cfe.create_prediction_movie(img_dir, pred_dir, vid_dir)
 

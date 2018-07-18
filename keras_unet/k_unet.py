@@ -290,6 +290,10 @@ class UNet(object):
             self.normalize(x_tr)
 
         x_va_norm = self.normalize(x_va)
+        x_va = load_images(os.path.join(test_img_dir, 'images', '0'))
+        y_va = load_masks(os.path.join(test_img_dir, 'masks', '0'))
+
+        # pre-process data
         y_va = to_categorical(y_va, self.n_class)
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
@@ -326,7 +330,6 @@ class UNet(object):
 
         self.train(model_dir, img_dir, valid_dir, batch_size=2, epochs=20, augmentation=False)
 
-
     def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
         x_va = load_images(os.path.join(img_dir), sort=True, target_size=(512, 512))
         self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
@@ -346,6 +349,10 @@ class UNet(object):
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
 
         p_va = self.model.predict(x_va_norm, batch_size=batch_size, verbose=1)
+        # self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
+        # self.model.load_weights(os.path.join(model_dir, 'model.h5'))
+
+        p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
         store_prediction(p_va, x_va, output_dir)
 
 
