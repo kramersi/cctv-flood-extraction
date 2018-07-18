@@ -277,13 +277,16 @@ class CCTVFloodExtraction(object):
 
         # characteristics of movie
         width = 2 * size[1] + margin  # width of whole movie
+        height = size[0]
         line_y1 = size[0] + margin
         line_y2 = 2 * size[0] + margin
         n_img = len(img_paths)
 
         # define video instance
-        fourcc = cv2.VideoWriter_fourcc(*vid_format)
-        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (512, width), True)
+        # fourcc = cv2.VideoWriter_fourcc(*vid_format)
+        # vid = cv2.VideoWriter(video_path, fourcc, float(fps), (512, width), True)
+
+        vid = cv2.VideoWriter(video_path, -1, 1, (width, height))
 
         # iterate over each image pair and concatenate toghether and put to video
         for i, (img_path, p_path) in enumerate(zip(img_paths, pred_paths)):
@@ -305,6 +308,7 @@ class CCTVFloodExtraction(object):
 
             vid.write(composition)  # write to video instance
 
+        cv2.destroyAllWindows()
         vid.release()
 
 
@@ -368,7 +372,7 @@ if __name__ == '__main__':
     import glob
     img_dir = os.path.join(file_base, 'frames', 'RollStairsTimeLapse')
     pred_dir = os.path.join(file_base, 'predictions', 'cflood_c2l3b3e40f32_dr075caugi2res', 'RollStairsTimeLapse')
-    vid_dir = 'pred_vid.avi'
+    vid_dir = 'predvid.avi'
 
     if not os.path.isdir(vid_dir):
         os.mkdir(vid_dir)
@@ -393,7 +397,8 @@ if __name__ == '__main__':
     # util.move_pics(src_la, dst_la)
     # util.move_pics(src_an, dst_an)
     # util.rename_pics(dst_la + '*')
-    # util.convert_images(dst_img, src='jpeg', dst='png')
+    #util.convert_images(dst_img, src='jpeg', dst='png')
+    # src = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\video_masks\\floodXcam5\\masks\\*'
 
     # src = 'E:\\watson_for_trend\\3_select_for_labelling\\train_cityscape\\*_*_*[0-9].png'
     # dst = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\cityscape\\*'
@@ -405,12 +410,12 @@ if __name__ == '__main__':
     #     shutil.move(file, dst)
 
     # import glob
-    # for file in glob.glob(dst):
-    #     # base, tail = os.path.split(file)
-    #     # im = cv2.imread(file)
-    #     # im_resize = util.resize_keep_aspect(im, 512)
-    #     # os.remove(file)
-    #     # cv2.imwrite(file, im_resize)
+    # for file in glob.glob(src):
+    #     base, tail = os.path.split(file)
+    #     im = cv2.imread(file)
+    #     im_resize = util.transform_mask(im, class_mapping=[(1, 0), (2, 1)])
+    #     os.remove(file)
+    #     cv2.imwrite(file, im_resize)
     #     # util.save_image(im_resize, file)
-    #     util.create_zero_mask(file)
+    #     # util.create_zero_mask(file)
 

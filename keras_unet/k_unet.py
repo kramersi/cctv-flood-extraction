@@ -7,7 +7,7 @@ import pandas as pd
 
 from keras.models import Input, Model, load_model
 from keras.layers import Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, UpSampling2D, Dropout, BatchNormalization
-from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
+from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
 from keras.utils import to_categorical
@@ -165,7 +165,7 @@ class UNet(object):
         # img_eq = exposure.equalize_hist(x_norm)
         return x_norm
 
-    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=4, augmentation=True, normalisation=True):
+    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=4, augmentation=True, normalisation=True, base_dir=None, learning_rate=0.01):
         """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
 
             example of defining paths
@@ -179,14 +179,28 @@ class UNet(object):
         shape = x_tr.shape  # pic_nr x width x height x depth
         n_train = shape[0]  # len(image_generator)
 
-        # compile model with optimizer and loss function
-        self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss,
-                      metrics=['acc', 'categorical_crossentropy'])
-
         # define callbacks
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
-        es = EarlyStopping(patience=9)
-        tb = TensorBoard(log_dir=model_dir)
+        es = EarlyStopping(monitor='val_loss', patience=30)
+        tb = TensorBoard(log_dir=model_dir, write_graph=True, write_images=True)
+        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, verbose=1, min_lr=0.000001)
+
+        if base_dir is not None:
+            self.model.load_weights(os.path.join(base_dir, 'model.h5'))
+
+            for layer in self.model.layers[:]:
+                layer.trainable = False
+
+            # # Check the trainable status of the individual layers
+            # for layer in self.model.layers:
+            #     print(layer, layer.trainable)
+
+        # compile model with optimizer and loss function
+        self.model.compile(optimizer=Adam(lr=learning_rate), loss=f1_loss,
+                           metrics=['acc', 'categorical_crossentropy'])
+
+        # summary of parameters in each layer
+        self.model.summary()
 
         y_tr = load_masks(os.path.join(train_dir, 'masks'))  # load mask arrays
         x_va = load_images(os.path.join(valid_dir, 'images'))
@@ -254,12 +268,12 @@ class UNet(object):
                                      validation_steps=n_valid / batch_size,
                                      epochs=epochs,
                                      verbose=1,
-                                     callbacks=[mc, tb],
+                                     callbacks=[mc, tb, es, lr],
                                      use_multiprocessing=False,
                                      workers=4)
         else:
             self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
-                           shuffle=True, callbacks=[mc, es, tb])
+                           shuffle=True, callbacks=[mc, es, tb, lr])
 
         scores = self.model.evaluate(x_va, y_va, batch_size=batch_size, verbose=1)
         print('scores', scores)
@@ -287,7 +301,7 @@ class UNet(object):
         scores = self.model.evaluate(x_va_norm, y_va, batch_size=batch_size, verbose=1)
         store_prediction(p_va, x_va, output_dir)
         res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
-               'Recall': [recall_np(y_va, p_va)], 'Error':[error_np(y_va, p_va)]}
+               'Recall': [recall_np(y_va, p_va)], 'Error': [error_np(y_va, p_va)]}
 
         pd.DataFrame(res).to_csv(os.path.join(model_dir, 'result.csv'))
 
@@ -298,7 +312,7 @@ class UNet(object):
         print('Error:     ' + str(error_np(y_va, p_va)))
         print('Scores:    ', scores)
 
-    def fine_tune(self, model_dir, img_dir):
+    def fine_tune(self, model_dir, img_dir, valid_dir):
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
@@ -309,6 +323,9 @@ class UNet(object):
         # Check the trainable status of the individual layers
         for layer in self.model.layers:
             print(layer, layer.trainable)
+
+        self.train(model_dir, img_dir, valid_dir, batch_size=2, epochs=20, augmentation=False)
+
 
     def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
         x_va = load_images(os.path.join(img_dir), sort=True, target_size=(512, 512))
@@ -338,31 +355,45 @@ if __name__ == '__main__':
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['cflood_c2l3b3e40f32_dr075caugi2', 'cflood_c2l3b3e40f32_dr075caugi2res', 'cflood_c2l5b3e40f16_dr075caugi2res']
-    aug = [True, True, True]
-    feat = [32, 32, 16]
-    ep = [40, 60, 60]
-    lay = [3, 3, 5]
+    model_names = ['ft_l5b3e200f16_dr075i2res_lr', 'ft_l4b3e60f64_dr075caugi2', 'cflood_c2l3b4e60f32_dr075caugi2_ext']
+    aug = [True, False, True]
+    feat = [16, 64, 32]
+    ep = [200, 60, 60]
+    lay = [5, 4, 3]
     drop = [0.75, 0.75, 0.75]
+    bat = [3, 3, 4]
+    res = [True, False, False]
 
     for i, model_name in enumerate(model_names):
-        if i == 2:
+        if i == 0:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
                 os.mkdir(model_dir)
 
+            # configs for fine tune
+            #base_model_dir = os.path.join(file_base, 'models', 'cflood_c2l5b3e40f16_dr075caugi2res')
+            # base_model_dir = os.path.join(file_base, 'models', 'cflood_c2l4b3e60f64_dr075caugi2')
+            #
+            # train_dir_ft = os.path.join(file_base, 'video_masks', 'CombParkGarage_train')
+            # valid_dir_ft = os.path.join(file_base, 'video_masks', 'CombParkGarage_validate')
+            # pred_dir_ft = os.path.join(file_base, 'models', model_name, 'test_img_tf')
+            # if not os.path.isdir(pred_dir_ft):
+            #     os.mkdir(pred_dir_ft)
+
+            # # configs for training from scratch
             train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\train'
             valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\validate'
             test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
 
-            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
+            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img_ext')
             if not os.path.isdir(pred_dir_flood):
                 os.mkdir(pred_dir_flood)
 
-            # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
-            # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
-            # test_dir_floodx = os.path.join(file_base, 'frames', 'FloodX')
+            # configs for testing model
+            test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
+            test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
+            test_dir_floodx = os.path.join(file_base, 'frames', 'FloodX')
 
             pred_dir = os.path.join(file_base, 'predictions', model_name)
             if not os.path.isdir(pred_dir):
@@ -382,17 +413,18 @@ if __name__ == '__main__':
             #         os.mkdir(pred_dir)
 
             img_shape = (512, 512, 3)
-            unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=True)
+            unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
+            # unet.model.summary()
 
-            unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=3, epochs=ep[i], augmentation=aug[i])
-            unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
+            unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=None, learning_rate=0.1)
+            # unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=4)
 
-            for test in glob.glob(test_dir):  # test for all frames in directory
-                base, tail = os.path.split(test)
-                pred = os.path.join(pred_dir, tail)
-
-                if not os.path.isdir(pred):
-                    os.mkdir(pred)
-
-                unet.predict(model_dir, test, pred, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images'))
+            # for test in glob.glob(test_dir):  # test for all frames in directory
+            #     base, tail = os.path.split(test)
+            #     pred = os.path.join(pred_dir, tail)
+            #
+            #     if not os.path.isdir(pred):
+            #         os.mkdir(pred)
+            #
+            #     unet.predict(model_dir, test, pred, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images'))
 

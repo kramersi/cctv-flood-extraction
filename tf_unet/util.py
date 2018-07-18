@@ -336,3 +336,11 @@ def remove_images(path, ext='jpg'):
     for j in glob.glob(glob_path):
         print('deleted file: ', j)
         os.remove(j)
+
+
+def transform_mask(image, class_mapping=[(1, 0), (2, 0)]):
+    # transform labels with right rgb colors
+    for old, new in class_mapping:
+        image[image[:, :, 0] == old] = [new, new, new]
+
+    return image
