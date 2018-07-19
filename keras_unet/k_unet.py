@@ -183,7 +183,7 @@ class UNet(object):
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
         es = EarlyStopping(monitor='val_loss', patience=30)
         tb = TensorBoard(log_dir=model_dir, write_graph=True, write_images=True)
-        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, verbose=1, min_lr=0.000001)
+        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, verbose=1, min_lr=0.000001)
 
         if base_dir is not None:
             self.model.load_weights(os.path.join(base_dir, 'model.h5'))
@@ -416,15 +416,15 @@ if __name__ == '__main__':
             unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
             # unet.model.summary()
 
-            unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=None, learning_rate=0.1)
-            # unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=4)
+            #unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=None, learning_rate=0.001)
+            #unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
 
-            # for test in glob.glob(test_dir):  # test for all frames in directory
-            #     base, tail = os.path.split(test)
-            #     pred = os.path.join(pred_dir, tail)
-            #
-            #     if not os.path.isdir(pred):
-            #         os.mkdir(pred)
-            #
-            #     unet.predict(model_dir, test, pred, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images'))
+            for test in glob.glob(test_dir):  # test for all frames in directory
+                base, tail = os.path.split(test)
+                pred = os.path.join(pred_dir, tail)
+
+                if not os.path.isdir(pred):
+                    os.mkdir(pred)
+
+                unet.predict(model_dir, test, pred, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images'))
 

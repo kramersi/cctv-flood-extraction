@@ -338,6 +338,9 @@ if __name__ == '__main__':
         'sec': [12*60+22, 19*60+39, 2*60+7, 55, 49, 12*60+5, 12, 14*60+3]
     }
 
+    frames = {
+        'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5',
+    }
 
     model_file = os.path.join(file_base, 'models', 'flood_keras_c2l4b4e50f32_aug')
 
