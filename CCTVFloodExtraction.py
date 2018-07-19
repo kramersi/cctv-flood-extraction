@@ -1,30 +1,28 @@
-import cv2
 import os
-import numpy as np
+import glob
+import cv2
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
+import numpy as np
 #from imgaug import augmenters as iaa
-import glob
-import shutil
-#from tf_unet import unet, util, image_util
-from keras_unet.utils import *
-from keras_unet.k_unet import load_images, store_prediction
 
-from keras import utils as keras_utils
+from img_utils import resize_keep_aspect
+from keras_utils import load_images, store_prediction, f1_loss
+from keras.models import load_model
 
 
 class CCTVFloodExtraction(object):
 
     cr_win = dict(top=0, left=0, width=640, height=360)
 
-    def __init__(self, video_file, model_dir, frame_dir=None, pred_dir=None, signal_dir=None, crop_window=cr_win):
+    def __init__(self, video_file, model_dir, frame_dir=None, pred_dir=None, signal_dir=None, video_name=None, crop_window=cr_win):
 
         self.video_file = video_file
         self.model_dir = model_dir
 
         self.model_name = os.path.splitext(os.path.basename(self.model_dir))[0]
-        self.video_name = os.path.splitext(os.path.basename(self.video_file))[0]
+        self.video_name = video_name if video_name is not None else os.path.splitext(os.path.basename(self.video_file))[0]
 
         self.frame_dir = self.check_create_folder(frame_dir, 'frames', self.video_name)
         self.pred_dir = self.check_create_folder(pred_dir, 'predictions', self.video_name)
@@ -71,7 +69,6 @@ class CCTVFloodExtraction(object):
             rotate (int): how many degree frames should be rotated. One of 0, 90, 180 or 270
 
         """
-
         if len(os.listdir(self.frame_dir)) > 0:
             print('Picture from this movie already extracted in that directory.')
         else:
@@ -94,7 +91,7 @@ class CCTVFloodExtraction(object):
                         # resize frames
                         if resize_dims is not None:
                             if keep_aspect is True:
-                                frame = util.resize_keep_aspect(frame, resize_dims)
+                                frame = resize_keep_aspect(frame, resize_dims)
                             else:
                                 frame = cv2.resize(frame, resize_dims, interpolation=cv2.INTER_CUBIC)
 
@@ -125,7 +122,7 @@ class CCTVFloodExtraction(object):
 
             print('frame extracted from video')
 
-    def load_model(self, model_type='keras'):
+    def load_model(self, model_type='keras', create_dir=True):
         """ loads neural network model of different types.
 
         The pretrained model must have following specifications:
@@ -138,37 +135,40 @@ class CCTVFloodExtraction(object):
             n_class (int): number of classes (defaults to two classes: background and water
 
         """
-        def load_image(path, dtype=np.float32):
-            data = np.array(cv2.imread(path), dtype)
-
-            # normalization
-            data -= np.amin(data)
-            data /= np.amax(data)
-            return data
-
-        if os.path.isdir(self.pred_dir):
+        if os.path.isdir(self.pred_dir) and create_dir is True:
             print('Pictures already predicted with that model')
         else:
-            print('created new directory ', self.pred_dir)
-            os.makedirs(self.pred_dir)
+            if create_dir is True:
+                os.makedirs(self.pred_dir)
+                print('created new directory ', self.pred_dir)
 
             if model_type == 'keras':
                 # def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
-                imgs = load_images(self.frame_dir, sort=True)
+                imgs = load_images(self.frame_dir, sort=True, target_size=(512, 512))
 
                 # normalize
-                tr_mean = np.array([76.51, 75.41, 71.02])
-                tr_std = np.array([76.064, 75.23, 75.03])
-                imgs_norm = imgs - tr_mean
-                imgs_norm /= tr_std
+                tr_mean = np.array([69.7399, 69.8885, 65.1602])
+                tr_std = np.array([72.9841, 72.3374, 71.6508])
+                imgs_norm = (imgs - tr_mean) / tr_std
 
-                model = load_model(os.path.join(self.model_dir, 'model.h5'))
 
-                p_va = model.predict(imgs_norm, batch_size=4, verbose=1)
-                store_prediction(p_va, imgs, self.pred_dir)
+                model = load_model(os.path.join(self.model_dir, 'model.h5'), custom_objects={'f1_loss': f1_loss})
+
+                p_va = model.predict(imgs_norm, batch_size=3, verbose=1)
+
+                self.predictions = p_va
+                # store_prediction(p_va, imgs, self.pred_dir, overlay=False)
 
             if model_type == 'tensorflow':
                 import tensorflow as tf
+
+                def load_image(path, dtype=np.float32):
+                    data = np.array(cv2.imread(path), dtype)
+
+                    # normalization
+                    data -= np.amin(data)
+                    data /= np.amax(data)
+                    return data
 
                 tensor_node_op = 'ArgMax:0'  # 'div_1:0'  # 'truediv_21:0'
                 tensor_node_x = 'Placeholder:0'
@@ -212,12 +212,9 @@ class CCTVFloodExtraction(object):
 
                     writer.add_graph(graph)  # add graph to tensorboard
 
-                if model_type == 'keras':
-                    print('not implemented')
-
             print('model loaded and images predicted')
 
-    def flood_extraction(self, threshold=200):
+    def flood_extraction(self, threshold=0.5, ref_path=None):
         """ extract a flood index out of detected pixels in the frames
 
         """
@@ -248,30 +245,40 @@ class CCTVFloodExtraction(object):
         flood_index = []
         for pred in predictions:
             pred_crop = pred[top:(top + height), left:(left + width)]
-            flood_index.append((pred_crop > threshold).sum() / (pred_crop.shape[0] * pred_crop.shape[1]))
+            flood_index.append((pred_crop[:, :, 1] > threshold).sum() / (pred_crop.shape[0] * pred_crop.shape[1]))
 
         # export flood_index to csv.
-        data = pd.DataFrame(dict(flood_index=flood_index))
+        data = pd.DataFrame(dict(extracted_sofi=flood_index))
+
+        if ref_path is not None:
+            df_ref = pd.read_csv(ref_path, delimiter=';')
+            df_ref = df_ref.set_index('Nr')
+            df_ref = df_ref.interpolate()
+            data['reference'] = df_ref.values
+
         data.to_csv(signal_file_path)
 
         # plot flood_index and store it.
-        data.plot(fig_size=(10, 21), x='index (#)', y='flood index (-)')
-        plt.show()
+        data.plot(figsize=(30, 10))
+        plt.xlabel('index (#)')
+        plt.ylabel('flood index (-)')
+        # plt.show()
         plt.savefig(plot_file_path, bbox_inches='tight')
         print('flood signal extracted')
 
-    def create_prediction_movie(self, img_path, pred_path, video_path, trend_path=None, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
+    def create_prediction_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
         """ crate a movie by showing images and prediction as well as the trend compared with groundtruth
 
         """
         # collect all image paths
-        img_paths = glob.glob(os.path.join(img_path, '*'))
-        pred_paths = glob.glob(os.path.join(pred_path, '*'))
+        img_paths = glob.glob(os.path.join(self.frame_dir, '*'))
+        pred_paths = glob.glob(os.path.join(self.pred_dir, '*'))
 
-        # read trend and resize
-        if trend_path is not None:
-            trend = cv2.imread(trend_path)
-            cv2.resize(trend, (size[0], size[1]*2 + margin))
+        img_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+        pred_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+
+        plot_name = self.model_name + '__' + self.video_name + '__' + 'plot.png'
+        trend_path = os.path.join(self.signal_dir, plot_name)
 
         # characteristics of movie
         width = 2 * size[1] + margin  # width of whole movie
@@ -280,28 +287,35 @@ class CCTVFloodExtraction(object):
         line_y2 = 2 * size[0] + margin
         n_img = len(img_paths)
 
+        # read trend and resize
+        if trend_path is not None:
+            trend = cv2.imread(trend_path)
+            trend = cv2.resize(trend, (width, height))
+            height = height * 2 + margin
+
         # define video instance
         fourcc = cv2.VideoWriter_fourcc(*vid_format)
-        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (height, width), True)
-
-        #vid = cv2.VideoWriter(video_path, -1, 1, (width, height))
+        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (width, height), True)
+        # vid = cv2.VideoWriter(video_path, -1, 1, (width, height))
 
         # iterate over each image pair and concatenate toghether and put to video
         for i, (img_path, p_path) in enumerate(zip(img_paths, pred_paths)):
             # read images
             img = cv2.imread(img_path)
+            img = cv2.resize(img, size)
             pred = cv2.imread(p_path)
 
             # concatenate pictures togehter with black margins
-            space_h = np.full((margin, size[1], 3), 0).astype('uint8')
-            composition = np.concatenate((img, space_h, pred), axis=0)
+            space_h = np.full((size[1], margin, 3), 0).astype('uint8')
+            composition = np.concatenate((img, space_h, pred), axis=1)
 
             if trend_path is not None:
-                space_w = np.full((width, margin, 3), 0)
-                composition = np.concatenate((composition, space_w, trend), axis=1)
+                space_w = np.full((margin, width, 3), 0).astype('uint8')
+                composition = np.concatenate((composition, space_w, trend), axis=0)
 
                 # draw line on trend graph at position x
-                line_x = i / n_img
+                plot_margin = 25
+                line_x = plot_margin + int((width - plot_margin-5) / n_img * i)
                 cv2.line(composition, (line_x, line_y1), (line_x, line_y2), (0, 0, 255), 5)
 
             vid.write(composition)  # write to video instance
@@ -312,10 +326,10 @@ class CCTVFloodExtraction(object):
 
 if __name__ == '__main__':
     # for apple
-    file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
+    # file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
-    #file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
+    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
 
     video_file = os.path.join(file_base, 'videos', 'ChaskaAthleticPark.mp4')
 
@@ -337,48 +351,41 @@ if __name__ == '__main__':
     }
 
     frames = {
-        'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5',
+        'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5', 'HamburgFischauktion', 'HoustonHarveyGarage', 'HoustonHarveyGarden'],
+        'roi': [[0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512]],
+        'fps': [1, 1, 15, 15, 15, 15],
+        'ref': [('video_masks', 'AthleticPark', 'sofi_annotated.csv'), None, None, None, None, None]
     }
+    model_name = 'ft_l5b3e200f16_dr075i2res_lr'
+    model_file = os.path.join(file_base, 'models', model_name)
 
-    model_file = os.path.join(file_base, 'models', 'flood_keras_c2l4b4e50f32_aug')
+    for i, name in enumerate(frames['name']):
+        if i == 5:
+            pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
+            frame_dir_flood = os.path.join(file_base, 'frames')
+            vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
+            ref_path = os.path.join(file_base, *frames['ref'][i]) if frames['ref'][i] else None
+            cr_win = dict(top=frames['roi'][i][0], left=frames['roi'][i][1], width=frames['roi'][i][2], height=frames['roi'][i][3])
+            cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir_flood, frame_dir=frame_dir_flood,
+                                      video_name=name, crop_window=cr_win)
+            cfe.load_model(create_dir=False)
+            cfe.flood_extraction(ref_path=ref_path)
+            cfe.create_prediction_movie(vid_dir_flood, fps=frames['fps'][i])
 
-    train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
-    valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
-    test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
+    # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
+    # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
+    #
+    # cfe = CCTVFloodExtraction(video_file, model_file)
 
-    pred_dir_flood = os.path.join(file_base, 'predictions', 'keras_pred_allnogen')
-
-    test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
-    test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
-
-    cfe = CCTVFloodExtraction(video_file, model_file)
     # import glob
-    # movie_path = os.path.join(file_base, 'videos', '*')
+    # img_dir = os.path.join(file_base, 'frames', 'RollStairsTimeLapse')
+    # pred_dir = os.path.join(file_base, 'predictions', 'cflood_c2l3b3e40f32_dr075caugi2res', 'RollStairsTimeLapse')
+    # vid_dir = os.path.join(file_base, 'predictions', 'predvid.avi')
     #
-    # for video_file in glob.glob(movie_path):
-    #     cfe = CCTVFloodExtraction(video_file, model_file)
-    #     cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
-
-    # importing video and model and do flood extraction
-    # cfe.import_video(video_url)
-    # cfe.video2frame(resize_dims=(512, 512), keep_aspect=True, max_frames=77)
+    # # if not os.path.isdir(vid_dir):
+    # #     os.mkdir(vid_dir)
     # cfe.load_model()
-    # cfe.flood_extraction(threshold=200)
-
-    # cfe.train_k_unet(train_dir_flood, valid_dir_flood, layers=4, features_root=32, batch_size=4, epochs=50,
-    #               cost='cross_entropy')
-    # cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
-    #
-    # cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)
-    import glob
-    img_dir = os.path.join(file_base, 'frames', 'RollStairsTimeLapse')
-    pred_dir = os.path.join(file_base, 'predictions', 'cflood_c2l3b3e40f32_dr075caugi2res', 'RollStairsTimeLapse')
-    vid_dir = os.path.join(file_base, 'predictions', 'predvid.avi')
-
-    # if not os.path.isdir(vid_dir):
-    #     os.mkdir(vid_dir)
-
-    cfe.create_prediction_movie(img_dir, pred_dir, vid_dir)
+    # cfe.create_prediction_movie(img_dir, pred_dir, vid_dir)
 
     # # move pictures from supervisely export
     # src_h = "C:\\Users\\kramersi\\Downloads\\all_flood_raw\\Flood*\\masks_human\\*.png"
@@ -420,3 +427,25 @@ if __name__ == '__main__':
     #     # util.save_image(im_resize, file)
     #     # util.create_zero_mask(file)
 
+    # train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\train'
+    # valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\validate'
+    # test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class_resized\\test'
+
+    # import glob
+    # movie_path = os.path.join(file_base, 'videos', '*')
+    #
+    # for video_file in glob.glob(movie_path):
+    #     cfe = CCTVFloodExtraction(video_file, model_file)
+    #     cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
+
+    # importing video and model and do flood extraction
+    # cfe.import_video(video_url)
+    # cfe.video2frame(resize_dims=(512, 512), keep_aspect=True, max_frames=77)
+    # cfe.load_model()
+    # cfe.flood_extraction(threshold=200)
+
+    # cfe.train_k_unet(train_dir_flood, valid_dir_flood, layers=4, features_root=32, batch_size=4, epochs=50,
+    #               cost='cross_entropy')
+    # cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
+    #
+    # cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)

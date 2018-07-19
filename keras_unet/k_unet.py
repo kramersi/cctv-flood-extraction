@@ -1,18 +1,16 @@
 import os
 import glob
-import re
 import numpy as np
-import cv2
 import pandas as pd
 
-from keras.models import Input, Model, load_model
+from keras.models import Input, Model
 from keras.layers import Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, UpSampling2D, Dropout, BatchNormalization
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from keras.optimizers import Adam
-from keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
+from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
 
-from keras_unet.utils import f1_loss, f1_np, iou_np, precision_np, recall_np, error_np
+from keras_utils import f1_loss, f1_np, iou_np, precision_np, recall_np, error_np, load_masks, load_images, channel_mean_stdev, store_prediction
 
 
 def conv_block(m, dim, acti, bn, res, do=0):
@@ -42,71 +40,6 @@ def level_block(m, dim, depth, inc, acti, do, bn, mp, up, res):
     else:
         m = conv_block(m, dim, acti, bn, res, do)
     return m
-
-
-def load_masks(path):
-    files = glob.glob(os.path.join(path, '*'))
-    first_img = load_img(files[0])
-
-    n = len(files)
-    w = first_img.width
-    h = first_img.height
-    x = np.empty((n, w, h))
-
-    for i, f in enumerate(files):
-        im = load_img(f)
-        x[i, :, :] = img_to_array(im)[:, :, 0].astype(np.int8)
-
-    return x
-
-
-def load_images(path, sort=False, target_size=None):
-    files = glob.glob(os.path.join(path, '*'))
-    if sort is True:
-        files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
-    first_img = load_img(files[0])
-
-    n = len(files)
-    if target_size is not None:
-        h = target_size[0]
-        w = target_size[1]
-    else:
-        w = first_img.width
-        h = first_img.height
-    x = np.empty((n, h, w, 3))
-
-    for i, f in enumerate(files):
-        im = load_img(f, target_size=target_size)
-        x[i, :, :, :] = img_to_array(im).astype(np.float32)
-
-    return x.astype('float32')
-
-
-def channel_mean_stdev(img):
-    m = np.mean(img, axis=(0, 1, 2))
-    s = np.std(img, axis=(0, 1, 2))
-    return m, s
-
-
-def store_prediction(predictions, images, output_dir):
-    class_mapping = {0: [0, 0, 0], 1: [0, 0, 255]}
-    count = 0
-    for pred, img in zip(predictions, images):
-        best_pred = np.argmax(pred, axis=-1)  # take label of maximum probability
-
-        # # resize the color map to fit image
-        # img_crop = np.uint8(img[0, :, :, :] * 255)
-
-        # overlay cmap with image
-        prediction = np.repeat(best_pred[:, :, np.newaxis], 3, axis=-1)
-        # fill prediction with right rgb colors
-        for label, rgb in class_mapping.items():
-            prediction[prediction[:, :, 0] == label] = rgb
-
-        overlay_img = cv2.addWeighted(np.uint8(img), 0.8, np.uint8(prediction), 0.5, 0)
-        cv2.imwrite(os.path.join(output_dir, 'pred' + str(count) + '.png'),
-                    cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
-        count +=1
 
 
 class UNet(object):
@@ -349,10 +282,6 @@ class UNet(object):
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
 
         p_va = self.model.predict(x_va_norm, batch_size=batch_size, verbose=1)
-        # self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
-        # self.model.load_weights(os.path.join(model_dir, 'model.h5'))
-
-        p_va = self.model.predict(x_va, batch_size=batch_size, verbose=1)
         store_prediction(p_va, x_va, output_dir)
 
 

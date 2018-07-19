@@ -121,11 +121,11 @@ def augment(x, y, h_shift=[], v_flip=False, h_flip=False, rot90=False, edge_mode
             y = np.concatenate((y, y))
     return x, y
 
-def resize_3d(img, size):
-    img2 = np.zeros((img.shape[0], size[0], size[1], img.shape[-1]))
-    for i in range(img.shape[0]):
-        img2[i] = tr.resize(img[i], (size[0], size[1]), mode='constant', preserve_range=True)
-    return img2
+# def resize_3d(img, size):
+#     img2 = np.zeros((img.shape[0], size[0], size[1], img.shape[-1]))
+#     for i in range(img.shape[0]):
+#         img2[i] = tr.resize(img[i], (size[0], size[1]), mode='constant', preserve_range=True)
+#     return img2
 
 def to_2d(x):
     assert len(x.shape) == 5 # Shape: (#, Z, Y, X, C)
@@ -156,20 +156,20 @@ def handle_specials(img):
         img = np.lib.pad(img, ((2,2), (0,0), (0,0), (0,0)), 'minimum')
     return img
 
-def erode(imgs, amount=3):
-    imgs = imgs.sum(axis=-1)
-    for i in range(len(imgs)):
-        imgs[i] = mo.erosion(imgs[i], mo.square(amount))
-    return imgs[..., np.newaxis]
-
-def add_noise(imgs, amount=3):
-    imgs = imgs.sum(axis=-1)
-    for i in range(len(imgs)):
-        if i % 2 == 0:
-            imgs[i] = mo.dilation(imgs[i], mo.square(amount))
-        else:
-            imgs[i] = mo.erosion(imgs[i], mo.square(amount))
-    return imgs[..., np.newaxis]
+# def erode(imgs, amount=3):
+#     imgs = imgs.sum(axis=-1)
+#     for i in range(len(imgs)):
+#         imgs[i] = mo.erosion(imgs[i], mo.square(amount))
+#     return imgs[..., np.newaxis]
+#
+# def add_noise(imgs, amount=3):
+#     imgs = imgs.sum(axis=-1)
+#     for i in range(len(imgs)):
+#         if i % 2 == 0:
+#             imgs[i] = mo.dilation(imgs[i], mo.square(amount))
+#         else:
+#             imgs[i] = mo.erosion(imgs[i], mo.square(amount))
+#     return imgs[..., np.newaxis]
             
 
 # Label helper functions
