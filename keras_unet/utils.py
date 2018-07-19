@@ -6,13 +6,13 @@ from keras.optimizers import *
 from keras.callbacks import *
 from keras.losses import *
 from keras.preprocessing.image import *
-from os.path import isfile
+# from os.path import isfile
 
 import random
 from glob import glob
-import skimage.io as io
-import skimage.transform as tr
-import skimage.morphology as mo
+# import skimage.io as io
+# import skimage.transform as tr
+# import skimage.morphology as mo
 
 import matplotlib.pyplot as plt
 
@@ -223,16 +223,16 @@ def multilabel(img, channel):
         return img2
 
 
-def read_mhd(path, label=0, crop=None, size=None, bias=False, norm=False):
-    img = io.imread(path, plugin='simpleitk')[..., np.newaxis].astype('float64')
-    img = handle_specials(img)
-    img = multilabel(img, label) if label > 0 else img
-    img = img[:, crop[0]:crop[0]+crop[2], crop[1]:crop[1]+crop[2]] if crop else img
-    #img = img[:, crop[0]:-2*crop[1]+crop[0], crop[1]:-1*crop[1]] if crop else img
-    img = resize_3d(img, size) if size else img
-    # img = n4_bias_correction(img) if bias else img
-    img = (img - img.mean()) / img.std() if norm else img
-    return img.astype('float32')
+# def read_mhd(path, label=0, crop=None, size=None, bias=False, norm=False):
+#     img = io.imread(path, plugin='simpleitk')[..., np.newaxis].astype('float64')
+#     img = handle_specials(img)
+#     img = multilabel(img, label) if label > 0 else img
+#     img = img[:, crop[0]:crop[0]+crop[2], crop[1]:crop[1]+crop[2]] if crop else img
+#     #img = img[:, crop[0]:-2*crop[1]+crop[0], crop[1]:-1*crop[1]] if crop else img
+#     img = resize_3d(img, size) if size else img
+#     # img = n4_bias_correction(img) if bias else img
+#     img = (img - img.mean()) / img.std() if norm else img
+#     return img.astype('float32')
 
 
 # def load_data(path, label=0, size=(24,224,224), bias=False, norm=False, to2d=False):
