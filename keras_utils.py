@@ -8,6 +8,38 @@ from keras.preprocessing.image import img_to_array, load_img
 from keras.losses import *
 
 
+def load_img_msk_paths(paths):
+    """ load images and masks paths from different folders to one dictonary which will serve for later generator of
+    images.
+
+        Args:
+            paths (list): list of different paths to folder
+        Hint: structure of folder has to be the folder with the subfolders mask and images, which can be ordered the same.
+            -- Folder_name
+                |---- images
+                        |---- img1.png
+                        |---- img2.png
+                |---- masks
+                        |---- img1-mask.png
+                        |---- img2-label.png
+
+        Attention:
+            names in different foolders should not have the same name.
+
+        Returns:
+            dict where keys are all images with the value as the mask path, e.g.
+            {'img1.png': 'img1-mask.png', 'img2.png': 'img2-label.png'}
+    """
+    img_mask_paths = {}
+    for path in paths:
+        p_img = glob.glob(os.path.join(path, 'images', '*'))
+        p_msk = glob.glob(os.path.join(path, 'masks', '*'))
+        for im, msk in zip(p_img, p_msk):
+            img_mask_paths[im] = msk
+
+    return img_mask_paths
+
+
 def load_masks(path):
     files = glob.glob(os.path.join(path, '*'))
     first_img = load_img(files[0])

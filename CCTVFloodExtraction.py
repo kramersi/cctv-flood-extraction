@@ -9,9 +9,9 @@ import numpy as np
 import tensorflow as tf
 
 from img_utils import resize_keep_aspect
-from keras_utils import load_images, store_prediction, f1_loss
+from keras_utils import load_images, store_prediction, f1_loss, load_img_msk_paths
 from keras.models import load_model
-
+from image_generator import ImageGenerator
 
 class CCTVFloodExtraction(object):
 
@@ -155,17 +155,13 @@ class CCTVFloodExtraction(object):
 
             if model_type == 'keras':
                 # def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
-                imgs = load_images(self.frame_dir, sort=True, target_size=(512, 512), max_files=200)
 
-                # normalize
-                tr_mean = np.array([69.7399, 69.8885, 65.1602])
-                tr_std = np.array([72.9841, 72.3374, 71.6508])
-                imgs_norm = (imgs - tr_mean) / tr_std
-
+                img_paths = glob.glob(os.path.join(self.frame_dir, '*'))
+                img_gen = ImageGenerator(img_paths, batch_size=3, shuffle=False, normalize='std_norm', augmentation=False)
 
                 model = load_model(os.path.join(self.model_dir, 'model.h5'), custom_objects={'f1_loss': f1_loss})
 
-                p_va = model.predict(imgs_norm, batch_size=3, verbose=1)
+                p_va = model.predict_generator(generator=img_gen, steps=1000, verbose=1)
 
                 self.predictions = p_va
                 # store_prediction(p_va, imgs, self.pred_dir, overlay=False)
@@ -225,6 +221,13 @@ class CCTVFloodExtraction(object):
 
             print('model loaded and images predicted')
 
+    def predict_batch(self, img_paths_batch, batch_size):
+        img_gen = ImageGenerator(img_paths_batch, batch_size=3, shuffle=False, normalize='std_norm', augmentation=False)
+
+        model = load_model(os.path.join(self.model_dir, 'model.h5'), custom_objects={'f1_loss': f1_loss})
+
+        return model.predict_generator(generator=img_gen, steps=batch_size, verbose=1)
+
     def flood_extraction(self, threshold=0.5, ref_path=None):
         """ extract a flood index out of detected pixels in the frames
 
@@ -278,8 +281,8 @@ class CCTVFloodExtraction(object):
 
             spe = df.corr(method='spearman').ix[0,1]
             ax = df.plot(kind='scatter', x='reference level', y='extracted sofi')
-            ax.text(0.9, 0.1, 'spearman corr.: ' + str(round(spe, 2)), horizontalalignment='center', verticalalignment='center', transform=ax.transAxes,
-                    bbox=dict(facecolor='grey', alpha=0.3))
+            ax.text(0.9, 0.1, 'spearman corr.: ' + str(round(spe, 2)), horizontalalignment='center',
+                    verticalalignment='center', transform=ax.transAxes, bbox=dict(facecolor='grey', alpha=0.3))
             plt.savefig(plot_file_path + '_corr.png', bbox_inches='tight')
             print('spearman_corr: ', spe)
 

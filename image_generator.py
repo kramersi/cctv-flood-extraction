@@ -1,36 +1,9 @@
 import numpy as np
 import keras
-
-from keras.preprocessing.image import ImageDataGenerator
-
-batch_size = 16
-
-# this is the augmentation configuration we will use for training
-train_datagen = ImageDataGenerator(
-        rescale=1./255,
-        shear_range=0.2,
-        zoom_range=0.2,
-        horizontal_flip=True)
-
-# this is the augmentation configuration we will use for testing:
-# only rescaling
-test_datagen = ImageDataGenerator(rescale=1./255)
-
-# this is a generator that will read pictures found in
-# subfolers of 'data/train', and indefinitely generate
-# batches of augmented image data
-train_generator = train_datagen.flow_from_directory(
-        'data/train',  # this is the target directory
-        target_size=(150, 150),  # all images will be resized to 150x150
-        batch_size=batch_size,
-        class_mode='binary')  # since we use binary_crossentropy loss, we need binary labels
-
-# this is a similar generator, for validation data
-validation_generator = test_datagen.flow_from_directory(
-        'data/validation',
-        target_size=(150, 150),
-        batch_size=batch_size,
-        class_mode='binary')
+from skimage import exposure
+import imgaug as ia
+from imgaug import augmenters as iaa
+from keras.preprocessing.image import img_to_array, load_img
 
 
 class ImageGenerator(keras.utils.Sequence):
@@ -38,66 +11,178 @@ class ImageGenerator(keras.utils.Sequence):
     fit generator function.
 
     Args:
-       dim (tuple): dimension of pictures
+       img_paths (list): paths to the images
+       masks (dict): mapping of img_paths to mask_paths, e.g. {img1: mask1, img2: mask2, ...} if None just images are
+       processed.
        batch_size (int): number of samples in output array of each interation of the generate method.
-    """
+       dim (tuple): dimension of pictures
+       n_channels (int): number of channels per picture, (1=greyscale, 3=rgb)
+       n_classes (int): number of classes
+       shuffle (bool): if images should be shuffled after each epoch
+       normalize (str): one of (std_norm, minmax_norm, None) if not None images will be normalized by type specified
+       augmentation (bool): if augmentation should be conducted. If true a aug_dict has to be defined
+       aug_dict (bool): dict with which augmentation should be conducted and in which range following are possible
+            horizontal_flip (float): probability with which pictures are flipped horizontally
+            vertical_flip (float): probability with which pictures are flipped horizontally
+            rotation_range (tuple): tuple of range of roatation in degrees, e.g. (-45, 45). None if no rotation
+            width_shift_range (tuple): range of shift in x direction, e.g. (-0.2, 0.2) translate by 20%
+            height_shift_range (tuple): range of shift in y direction, e.g. (-0.2, 0.2) translate by 20%
+            zoom_range (tuple): range of zoom aspect ratio is perceived, bigger than 1 zooms in lower zooms out
+            grayscale_range (tuple): use of color the 0=no change, 1.0 just grayscale, image is still 3 channels
+            brightness_range (tuple): 0=black, 1=same brightness, 2=very bright
+            contrast_range (tuple):
+            crop_range (tuple): range for random crop
+            blur_range (tuple): range of gaussian blurring, 0=no blurring, 4=extremly blurred
+            shear_range (tuple): range of shear in degrees 0 = no shearing
+            prob (float): probability (0-1) on how often the augmenters should be used
 
-    def __init__(self, list_IDs, labels, batch_size=32, dim=(32, 32, 32), n_channels=1, n_classes=10, shuffle=True):
+    """
+    aug_dict = dict(horizontal_flip=0.0, vertical_flip=0.0, rotation_range=0.0,
+                    width_shift_range=0.0, height_shift_range=0.0, contrast_range=1.0,
+                    zoom_range=1.0, grayscale_range=0.0, brightness_range=1.0, crop_range=1,
+                    blur_range=0.0, shear_range=0.0, prob=0.25)
+
+    def __init__(self, img_paths, masks=None, batch_size=3, dim=(512, 512), n_channels=3, n_classes=2, shuffle=True, normalize=None,
+                 augmentation=True, aug_dict=aug_dict):
         self.dim = dim
         self.batch_size = batch_size
-        self.labels = labels
-        self.list_IDs = list_IDs
+        self.masks = masks
+        self.img_paths = img_paths
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.shuffle = shuffle
+        self.normalize = normalize
+        self.augmentation = augmentation
+        self.aug_dict = aug_dict
         self.on_epoch_end()
 
+        if self.augmentation is True:
+            self.seq = self.get_augmentation_sequence()
+
     def __len__(self):
-        'Denotes the number of batches per epoch'
-        return int(np.floor(len(self.list_IDs) / self.batch_size))
+        """Denotes the number of batches per epoch
+
+        """
+        return int(np.floor(len(self.img_paths) / self.batch_size))
 
     def __getitem__(self, index):
-        'Generate one batch of data'
+        """"Generate one batch of data
+
+        Args:
+            index (int): index of first image in batch of all images
+
+        """
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
         # Find list of IDs
-        list_IDs_temp = [self.list_IDs[k] for k in indexes]
+        img_paths_temp = [self.img_paths[k] for k in indexes]
 
         # Generate data
-        X, y = self.__data_generation(list_IDs_temp)
+        x, y = self.__data_generation(img_paths_temp)
 
-        return X, y
+        return x, y
+
+    def get_augmentation_sequence(self):
+        a = self.aug_dict
+        sometimes = lambda aug: iaa.Sometimes(a['prob'], aug)
+
+        augmenters = [iaa.Fliplr(a['horizontal_flip'], name='fliplr'),  # flip horizontally
+                      iaa.Flipup(a['vertical_flip'], name='flipup'),  # flip vertically
+                      iaa.CropAndPad(precent=a['crop_range'], sample_independently=False, name='crop'),  # random crops
+                      iaa.Affine(
+                          scale={a['zoom_range']},  # scale images to % of their size
+                          translate_percent={"x": a['width_shift_range'], "y": a['height_shift_range']},  # translate by percent
+                          rotate=a['rotation_range'],  # rotate by -45 to +45 degrees
+                          shear=a['shear_range'],  # shear by -16 to +16 degrees
+                          order=[0, 1],  # use nearest neighbour or bilinear interpolation (fast)
+                          mode='wrap',  # use any of scikit-image's warping modes
+                          name='affine'),
+                      sometimes(iaa.ContrastNormalization(a['contrast_range']), name='contrast'),  # change contrast
+                      sometimes(iaa.GaussianBlur(sigma=a['blur_range']), name='blur'),  # Adding blur
+                      sometimes(iaa.Grayscale(alpha=a['grayscale_range']), name='grayscale'),  # reduce color of image
+                      sometimes(iaa.Multiply(a['brightness_range']), name='brightness')]  # darker or brighter
+
+        return iaa.Sequential(augmenters, random_order=True)
 
     def on_epoch_end(self):
-        'Updates indexes after each epoch'
-        self.indexes = np.arange(len(self.list_IDs))
-        if self.shuffle == True:
+        """" Updates indexes after each epoch
+
+        """
+        self.indexes = np.arange(len(self.img_paths))
+        if self.shuffle is True:
             np.random.shuffle(self.indexes)
 
-    def __data_generation(self, list_IDs_temp):
-        'Generates data containing batch_size samples'  # X : (n_samples, *dim, n_channels)
+    def __data_generation(self, img_paths_temp):
+        """Generates data containing batch_size samples x : (n_samples, *dim, n_channels)
+
+        Args:
+            img_paths_temp (list of str): list of image paths in that batch
+
+        """
         # Initialization
-        X = np.empty((self.batch_size, *self.dim, self.n_channels))
-        y = np.empty((self.batch_size), dtype=int)
+        x = np.empty((self.batch_size, *self.dim, self.n_channels))
+        y = np.empty((self.batch_size, *self.dim), dtype=int)
 
         # Generate data
-        for i, ID in enumerate(list_IDs_temp):
+        for i, img_path in enumerate(img_paths_temp):
+            # Load image and mask
+            im = load_img(img_path, target_size=self.dim)
+
             # Store sample
-            X[i,] = np.load('data/' + ID + '.npy')
+            x[i, ] = img_to_array(im).astype(np.float32)  # np.load('data/' + ID + '.npy')
 
-            # Store class
-            y[i] = self.labels[ID]
+            if self.masks is not None:
+                msk = load_img(self.masks[img_path])
+                y[i, ] = img_to_array(msk)[:, :, 0].astype(np.int8)
 
-        return X, keras.utils.to_categorical(y, num_classes=self.n_classes)
 
-    def __data_augmentation(self, x, y):
-        # # loading data with resizing it to size keeping aspect ratio
-        # # data augmentation
-        # seq = iaa.Sequential([
-        #     #iaa.Fliplr(1),  # horizontally flip 50% of the images
-        #     iaa.GaussianBlur(sigma=(1.0, 2.0))  # blur images with a sigma of 0 to 3.0
-        # ])
-        # # x = seq.augment_images(x)
-        # print('data preprocessing finished')
-        return x, y
+        # Augment image and mask
+        if self.augmentation is True:
+            x, y = self.__data_augmentation(x, y)
+
+        # Normalize batch images
+        if self.normalize is not None:
+            x_norm = self.__data_normalisation(x)
+
+        y_cat = keras.utils.to_categorical(y, num_classes=self.n_classes)  # transform mask to one-hot encoding
+
+        return x_norm, y_cat
+
+    def __data_normalisation(self, img, hist_eq=False):
+        """ normalizing of data, e.g. normalisation or contrast enhancements
+
+        Args:
+            img (ndarray): numpy array of image
+            type (str): one of std_norm or minmax_norm to clarify which type of normalisation
+            hist_eq (bool): whether to do histogram equalisation or not
+
+        """
+        # normalize
+        if self.normalize == 'std_norm':
+            tr_mean = np.array([69.7399, 69.8885, 65.1602])
+            tr_std = np.array([72.9841, 72.3374, 71.6508])
+
+            img_norm = (img - tr_mean) / tr_std
+
+        if self.normalize == 'minmax_norm':
+            img_norm = (img - np.amin(img)) / np.amax(img)
+
+        # histogram equalisation
+        if hist_eq is True:
+            img_norm = exposure.equalize_hist(img_norm)
+
+        return img_norm
+
+    def __data_augmentation(self, x, y, seq):
+        """augments data and labels, if necessary
+
+        """
+        def activator(images, augmenter, parents, default):
+            return False if augmenter.name in ['blur', 'contrast', 'grayscale', 'brightness'] else default
+
+        seq_det = seq.to_deterministic()
+        x_aug = seq_det.augment_images(x)
+        y_aug = seq_det.augment_images(y, hooks=ia.HooksImages(activator=activator))
+
+        return x_aug, y_aug
