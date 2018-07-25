@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import re
 import numpy as np
 #from imgaug import augmenters as iaa
+import tensorflow as tf
 
 from img_utils import resize_keep_aspect
 from keras_utils import load_images, store_prediction, f1_loss
@@ -46,6 +47,16 @@ class CCTVFloodExtraction(object):
             os.makedirs(output)
 
         return output
+
+    def extract_level_from_name(self):
+        images = glob.glob(os.path.join(self.frame_dir, '*'))
+        level = []
+        for i, im in enumerate(images):
+            base, tail = os.path.split(im)
+            name = tail.split('.')[-2]
+            number = name.split('_')[-1]
+            level.append(float(number))
+        return np.array(level)
 
     def import_video(self, url, source='youtube'):
         # video must be of following formats: mp4 | flv | ogg | webm | mkv | avi
@@ -144,7 +155,7 @@ class CCTVFloodExtraction(object):
 
             if model_type == 'keras':
                 # def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
-                imgs = load_images(self.frame_dir, sort=True, target_size=(512, 512))
+                imgs = load_images(self.frame_dir, sort=True, target_size=(512, 512), max_files=200)
 
                 # normalize
                 tr_mean = np.array([69.7399, 69.8885, 65.1602])
@@ -217,11 +228,15 @@ class CCTVFloodExtraction(object):
     def flood_extraction(self, threshold=0.5, ref_path=None):
         """ extract a flood index out of detected pixels in the frames
 
+            Args:
+                threshold (float): At which pixel value it is detected as water
+                ref_path (str): three possibilities: None if no reference data availabe, file_name if reference
+                                is extracted from file name or path where csv file is laying with two columns: nr, level.
         """
         # define file paths for output data
         prefix_name = self.model_name + '__' + self.video_name
         signal_name = prefix_name + '__' + 'signal.csv'
-        plot_name = prefix_name + '__' + 'plot.png'
+        plot_name = prefix_name + '__' + 'plot'
         signal_file_path = os.path.join(self.signal_dir, signal_name)
         plot_file_path = os.path.join(self.signal_dir, plot_name)
 
@@ -247,24 +262,39 @@ class CCTVFloodExtraction(object):
             pred_crop = pred[top:(top + height), left:(left + width)]
             flood_index.append((pred_crop[:, :, 1] > threshold).sum() / (pred_crop.shape[0] * pred_crop.shape[1]))
 
-        # export flood_index to csv.
-        data = pd.DataFrame(dict(extracted_sofi=flood_index))
+        # create dataframe for plotting and exporting to csv
+        df = pd.DataFrame({'extracted sofi': flood_index})
 
+        # if ref_path defined, then add reference values to dataframe and plot correlation
         if ref_path is not None:
-            df_ref = pd.read_csv(ref_path, delimiter=';')
-            df_ref = df_ref.set_index('Nr')
-            df_ref = df_ref.interpolate()
-            data['reference'] = df_ref.values
+            if ref_path == 'file_name':
+                val_ref = self.extract_level_from_name()
+                df['reference level'] = val_ref
+            else:
+                df_ref = pd.read_csv(ref_path, delimiter=';')
+                df_ref = df_ref.set_index('nr')
+                df_ref = df_ref.interpolate()
+                df['reference level'] = df_ref.values
 
-        data.to_csv(signal_file_path)
+            spe = df.corr(method='spearman').ix[0,1]
+            ax = df.plot(kind='scatter', x='reference level', y='extracted sofi')
+            ax.text(0.9, 0.1, 'spearman corr.: ' + str(round(spe, 2)), horizontalalignment='center', verticalalignment='center', transform=ax.transAxes,
+                    bbox=dict(facecolor='grey', alpha=0.3))
+            plt.savefig(plot_file_path + '_corr.png', bbox_inches='tight')
+            print('spearman_corr: ', spe)
+
+        # export flood_index to csv.
+        df.to_csv(signal_file_path)
 
         # plot flood_index and store it.
-        data.plot(figsize=(30, 10))
+        df.plot(figsize=(30, 10))
         plt.xlabel('index (#)')
         plt.ylabel('flood index (-)')
         # plt.show()
-        plt.savefig(plot_file_path, bbox_inches='tight')
+        plt.savefig(plot_file_path + '_ts.png', bbox_inches='tight')
         print('flood signal extracted')
+
+        return df
 
     def create_prediction_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
         """ crate a movie by showing images and prediction as well as the trend compared with groundtruth
@@ -351,26 +381,29 @@ if __name__ == '__main__':
     }
 
     frames = {
-        'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5', 'HamburgFischauktion', 'HoustonHarveyGarage', 'HoustonHarveyGarden'],
-        'roi': [[0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512]],
+        'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5', 'HoustonHarveyGarage', 'HoustonHarveyGarden',
+                 'HamburgFischauktion',],
+        'roi': [[0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512],
+                [0, 0, 512, 512]],
         'fps': [1, 1, 15, 15, 15, 15],
-        'ref': [('video_masks', 'AthleticPark', 'sofi_annotated.csv'), None, None, None, None, None]
+        'ref': [os.path.join(file_base, 'frames', 'ChaskaAthleticPark.csv'), 'file_name', 'file_name',
+                os.path.join(file_base, 'frames', 'HoustonHarveyGarage.csv'), None, None]
     }
     model_name = 'ft_l5b3e200f16_dr075i2res_lr'
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i == 5:
+        if i == 2:
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
             frame_dir_flood = os.path.join(file_base, 'frames')
             vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
-            ref_path = os.path.join(file_base, *frames['ref'][i]) if frames['ref'][i] else None
+            ref_path = frames['ref'][i]
             cr_win = dict(top=frames['roi'][i][0], left=frames['roi'][i][1], width=frames['roi'][i][2], height=frames['roi'][i][3])
             cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir_flood, frame_dir=frame_dir_flood,
                                       video_name=name, crop_window=cr_win)
             cfe.load_model(create_dir=False)
             cfe.flood_extraction(ref_path=ref_path)
-            cfe.create_prediction_movie(vid_dir_flood, fps=frames['fps'][i])
+            # cfe.create_prediction_movie(vid_dir_flood, fps=frames['fps'][i])
 
     # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
     # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
@@ -435,8 +468,9 @@ if __name__ == '__main__':
     # movie_path = os.path.join(file_base, 'videos', '*')
     #
     # for video_file in glob.glob(movie_path):
-    #     cfe = CCTVFloodExtraction(video_file, model_file)
-    #     cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
+    # video_file = os.path.join(file_base, 'videos', 'ChaskaAthleticPark.mp4')
+    # cfe = CCTVFloodExtraction(video_file, model_file)
+    # cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
 
     # importing video and model and do flood extraction
     # cfe.import_video(video_url)

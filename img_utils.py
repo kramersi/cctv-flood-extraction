@@ -76,3 +76,38 @@ def transform_mask(image, class_mapping=[(1, 0), (2, 0)]):
         image[image[:, :, 0] == old] = [new, new, new]
 
     return image
+
+def match_label(img_names, mask_names):
+    img_names.sort()
+    mask_names.sort()
+    return [name for name in img_names if any(n in name for n in mask_names)]
+
+if __name__ == '__main__':
+
+    # paths
+    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
+    src_img = os.path.join(file_base, 'frames', 'floodX_cam5', '*')
+    src_mask = os.path.join(file_base, 'video_masks', 'floodX_cam1', 'masks', '*')
+    dst = os.path.join(file_base, 'video_masks', 'floodX_cam5', 'images')
+
+    # # match label with images
+    # img_names = glob.glob(src_img)
+    # mask_names = glob.glob(src_mask)
+    # msk = [os.path.split(m)[1].split('_')[5] for m in mask_names]
+    # match = match_label(img_names, msk)
+    # for m in match:
+    #     copy_pics(m, dst)
+
+    # changes pictures in directory, outcomment steps, which are not necessary
+    for file in glob.glob(src_mask):
+
+        base, tail = os.path.split(file)
+        name = os.path.splitext(tail)[0]
+        file_path = os.path.join(base, name)  # path without extension
+        ext = 'png'
+
+        im = cv2.imread(file)
+        im = transform_mask(im, class_mapping=[(1, 0), (2, 1)])
+        im = resize_keep_aspect(im, 512)
+        os.remove(file)
+        cv2.imwrite(file_path + '.' + ext, im)  # renamin or changing extension

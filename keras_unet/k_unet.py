@@ -85,8 +85,8 @@ class UNet(object):
         self.model = Model(inputs=i, outputs=o)
 
     def normalize(self, x):
-        self.tr_mean = np.array([69.7399, 69.8885, 65.1602])
-        self.tr_std = np.array([72.9841, 72.3374, 71.6508])
+        #self.tr_mean = np.array([69.7399, 69.8885, 65.1602])
+        #self.tr_std = np.array([72.9841, 72.3374, 71.6508])
 
         if self.tr_mean is None:
             print('mean and standard deviation of training pictures not calculated yet, calculating...')
@@ -115,13 +115,13 @@ class UNet(object):
         # define callbacks
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
         es = EarlyStopping(monitor='val_loss', patience=30)
-        tb = TensorBoard(log_dir=model_dir, write_graph=True, write_images=True)
-        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, verbose=1, min_lr=0.000001)
+        tb = TensorBoard(log_dir=model_dir, write_graph=True) # write_images=True, write_grads=True, histogram_freq=5
+        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, verbose=1, min_lr=0.000001)
 
         if base_dir is not None:
             self.model.load_weights(os.path.join(base_dir, 'model.h5'))
 
-            for layer in self.model.layers[:]:
+            for layer in self.model.layers[:-34]:
                 layer.trainable = False
 
             # # Check the trainable status of the individual layers
@@ -206,12 +206,12 @@ class UNet(object):
                                      workers=4)
         else:
             self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
-                           shuffle=True, callbacks=[mc, es, tb, lr])
+                           shuffle=True, callbacks=[mc, tb, lr])
 
         scores = self.model.evaluate(x_va, y_va, batch_size=batch_size, verbose=1)
         print('scores', scores)
 
-    def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None):
+    def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None, csv_path=None):
 
         x_va = load_images(os.path.join(test_img_dir, 'images'))
         y_va = load_masks(os.path.join(test_img_dir, 'masks'))
@@ -223,8 +223,6 @@ class UNet(object):
             self.normalize(x_tr)
 
         x_va_norm = self.normalize(x_va)
-        x_va = load_images(os.path.join(test_img_dir, 'images', '0'))
-        y_va = load_masks(os.path.join(test_img_dir, 'masks', '0'))
 
         # pre-process data
         y_va = to_categorical(y_va, self.n_class)
@@ -239,9 +237,10 @@ class UNet(object):
         store_prediction(p_va, x_va, output_dir)
         res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
                'Recall': [recall_np(y_va, p_va)], 'Error': [error_np(y_va, p_va)]}
-
-        pd.DataFrame(res).to_csv(os.path.join(model_dir, 'result.csv'))
-
+        if csv_path is None:
+            pd.DataFrame(res).to_csv(os.path.join(model_dir, 'result.csv'))
+        else:
+            pd.DataFrame(res).to_csv(os.path.join(csv_path))
         print('DICE:      ' + str(f1_np(y_va, p_va)))
         print('IoU:       ' + str(iou_np(y_va, p_va)))
         print('Precision: ' + str(precision_np(y_va, p_va)))
@@ -291,24 +290,26 @@ if __name__ == '__main__':
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['ft_l5b3e200f16_dr075i2res_lr', 'ft_l4b3e60f64_dr075caugi2', 'cflood_c2l3b4e60f32_dr075caugi2_ext']
-    aug = [True, False, True]
-    feat = [16, 64, 32]
-    ep = [200, 60, 60]
-    lay = [5, 4, 3]
-    drop = [0.75, 0.75, 0.75]
-    bat = [3, 3, 4]
-    res = [True, False, False]
+    model_names = ['ref_l5b3e200f16_dr075i2res_lr', 'ref_l3b3e200f32_dr075i2', 'aug_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
+    aug = [False, False, True, True]
+    feat = [16, 32, 16, 32, 16]
+    ep = [100, 200, 200, 200, 200]
+    lay = [5, 3, 5, 3, 5]
+    drop = [0.75, 0.75, 0.75, 0.75, 0.75]
+    bat = [3, 3, 3, 3, 3]
+    res = [True, False, True, False, True]
+    bd = [None, None, None, None, None]
+    # bd = [os.path.join(file_base, 'models', 'ft_l5b3e200f16_dr075i2res_lr'), None, None]
 
     for i, model_name in enumerate(model_names):
-        if i == 0:
+        if i == 4:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
                 os.mkdir(model_dir)
 
             # configs for fine tune
-            #base_model_dir = os.path.join(file_base, 'models', 'cflood_c2l5b3e40f16_dr075caugi2res')
+            # base_model_dir = os.path.join(file_base, 'models', 'cflood_c2l5b3e40f16_dr075caugi2res')
             # base_model_dir = os.path.join(file_base, 'models', 'cflood_c2l4b3e60f64_dr075caugi2')
             #
             # train_dir_ft = os.path.join(file_base, 'video_masks', 'CombParkGarage_train')
@@ -318,11 +319,11 @@ if __name__ == '__main__':
             #     os.mkdir(pred_dir_ft)
 
             # # configs for training from scratch
-            train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\train'
-            valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\validate'
-            test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'
+            train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\train' # os.path.join(file_base, 'video_masks', 'floodX_cam1', 'train')
+            valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\validate'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
+            test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
 
-            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img_ext')
+            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img_cam1')
             if not os.path.isdir(pred_dir_flood):
                 os.mkdir(pred_dir_flood)
 
@@ -352,15 +353,16 @@ if __name__ == '__main__':
             unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
             # unet.model.summary()
 
-            #unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=None, learning_rate=0.001)
-            #unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
-
+            # unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], learning_rate=0.001)
+            # unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
+            test_dir = os.path.join(file_base, 'video_masks', '*')
             for test in glob.glob(test_dir):  # test for all frames in directory
                 base, tail = os.path.split(test)
-                pred = os.path.join(pred_dir, tail)
-
+                pred = os.path.join(model_dir, 'pred_' + tail)
+                csv_path = os.path.join(model_dir, tail + '.csv')
+                test_val = os.path.join(test, 'validate')
                 if not os.path.isdir(pred):
                     os.mkdir(pred)
 
-                unet.predict(model_dir, test, pred, batch_size=3, train_dir=os.path.join(train_dir_flood, 'images'))
+                unet.test(model_dir, test_val, pred, batch_size=3, csv_path=csv_path)
 

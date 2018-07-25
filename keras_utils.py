@@ -24,13 +24,13 @@ def load_masks(path):
     return x
 
 
-def load_images(path, sort=False, target_size=None):
+def load_images(path, sort=False, target_size=None, max_files=200):
     files = glob.glob(os.path.join(path, '*'))
     if sort is True:
         files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
     first_img = load_img(files[0])
 
-    n = len(files)
+    n = len(files)  # min(len(files), max_files)
     if target_size is not None:
         h = target_size[0]
         w = target_size[1]
@@ -100,13 +100,18 @@ def store_prediction(predictions, images, output_dir, overlay=True):
 
 # 2TP / (2TP + FP + FN)
 def f1(y_true, y_pred):
+    # weight = np.array([1, 10])
+    # k_weight = K.variable(weight[None, None, :])
+    # y_true = y_true * k_weight
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
     intersection = K.sum(y_true_f * y_pred_f)
     return (2. * intersection + 1.) / (K.sum(y_true_f) + K.sum(y_pred_f) + 1.)
 
+
 def f1_np(y_true, y_pred):
     return (2. * (y_true * y_pred).sum() + 1.) / (y_true.sum() + y_pred.sum() + 1.)
+
 
 def f1_loss(y_true, y_pred):
     return 1-f1(y_true, y_pred)
