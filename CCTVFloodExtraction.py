@@ -9,7 +9,7 @@ import numpy as np
 import tensorflow as tf
 
 from img_utils import resize_keep_aspect
-from keras_utils import load_images, store_prediction, f1_loss, load_img_msk_paths
+from keras_utils import load_images, store_prediction, f1_loss, load_img_msk_paths, transform_to_human_mask
 from keras.models import load_model
 from image_generator import ImageGenerator
 
@@ -30,6 +30,7 @@ class CCTVFloodExtraction(object):
         self.signal_dir = self.check_create_folder(signal_dir, 'signal')
 
         self.predictions = []
+        self.model = None
         self.crop_window = crop_window
 
     def check_create_folder(self, output, *folder_names):
@@ -159,12 +160,7 @@ class CCTVFloodExtraction(object):
                 img_paths = glob.glob(os.path.join(self.frame_dir, '*'))
                 img_gen = ImageGenerator(img_paths, batch_size=3, shuffle=False, normalize='std_norm', augmentation=False)
 
-                model = load_model(os.path.join(self.model_dir, 'model.h5'), custom_objects={'f1_loss': f1_loss})
-
-                p_va = model.predict_generator(generator=img_gen, steps=1000, verbose=1)
-
-                self.predictions = p_va
-                # store_prediction(p_va, imgs, self.pred_dir, overlay=False)
+                self.model = load_model(os.path.join(self.model_dir, 'model.h5'), custom_objects={'f1_loss': f1_loss})
 
             if model_type == 'tensorflow':
                 import tensorflow as tf
@@ -219,20 +215,52 @@ class CCTVFloodExtraction(object):
 
                     writer.add_graph(graph)  # add graph to tensorboard
 
-            print('model loaded and images predicted')
+            print('model loaded')
 
-    def predict_batch(self, img_paths_batch, batch_size):
-        img_gen = ImageGenerator(img_paths_batch, batch_size=3, shuffle=False, normalize='std_norm', augmentation=False)
+    def predict_images(self, img_paths):
+        """ create ImageGenerator and predict images
 
-        model = load_model(os.path.join(self.model_dir, 'model.h5'), custom_objects={'f1_loss': f1_loss})
+        Args:
+            img_paths (list of str): a batch of all image paths which should be predicted
 
-        return model.predict_generator(generator=img_gen, steps=batch_size, verbose=1)
+        """
+        img_gen = ImageGenerator(img_paths, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
 
-    def flood_extraction(self, threshold=0.5, ref_path=None):
-        """ extract a flood index out of detected pixels in the frames
+        return self.model.predict_generator(generator=img_gen, verbose=1)
+
+    def flood_extraction(self, threshold=0.5, predictions=None):
+        """ extract a flood index out of detected pixels in the frames (prediction)
 
             Args:
                 threshold (float): At which pixel value it is detected as water
+                predictions (ndarray):  dimensions: (number * width * height * channel) of the predicted images
+        """
+        # define crop window
+        top = self.crop_window['top']
+        left = self.crop_window['left']
+        height = self.crop_window['height']
+        width = self.crop_window['width']
+
+        # if prediction is not given as parameter then load predictions from stored pngs in the prediction directory
+        if predictions is None:
+            # natural sort the files in directory
+            f_names = os.listdir(self.pred_dir)
+            f_names.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+            predictions = [cv2.imread(os.path.join(self.pred_dir, file)) for file in f_names]
+
+        # iterate over each predicted frame, crop image and calculate flood index
+        flood_index = []
+        for pred in predictions:
+            pred_crop = pred[top:(top + height), left:(left + width)]
+            flood_index.append((pred_crop[:, :, 1] > threshold).sum() / (pred_crop.shape[0] * pred_crop.shape[1]))
+
+        return np.array(flood_index)
+
+    def plot_sofi(self, flood_index, ref_path=None):
+        """ extract a flood index out of detected pixels in the frames
+
+            Args:
+                flood_index (ndarray): list of all extracted flood indexes (SOFI)
                 ref_path (str): three possibilities: None if no reference data availabe, file_name if reference
                                 is extracted from file name or path where csv file is laying with two columns: nr, level.
         """
@@ -242,28 +270,6 @@ class CCTVFloodExtraction(object):
         plot_name = prefix_name + '__' + 'plot'
         signal_file_path = os.path.join(self.signal_dir, signal_name)
         plot_file_path = os.path.join(self.signal_dir, plot_name)
-
-        # define crop window
-        top = self.crop_window['top']
-        left = self.crop_window['left']
-        height = self.crop_window['height']
-        width = self.crop_window['width']
-
-        # if predictions are stored in variable then directly otherwise load predictions from pngs
-        if len(self.predictions) > 0:
-            predictions = self.predictions
-        else:
-            # natural sort the files in directory
-            f_names = os.listdir(self.pred_dir)
-            f_names.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
-            predictions = [cv2.imread(os.path.join(self.pred_dir, file)) for file in f_names]
-            predprint = [file for file in f_names]
-
-        # iterate over each predicted frame, crop image and calculate flood index
-        flood_index = []
-        for pred in predictions:
-            pred_crop = pred[top:(top + height), left:(left + width)]
-            flood_index.append((pred_crop[:, :, 1] > threshold).sum() / (pred_crop.shape[0] * pred_crop.shape[1]))
 
         # create dataframe for plotting and exporting to csv
         df = pd.DataFrame({'extracted sofi': flood_index})
@@ -277,11 +283,11 @@ class CCTVFloodExtraction(object):
                 df_ref = pd.read_csv(ref_path, delimiter=';')
                 df_ref = df_ref.set_index('nr')
                 df_ref = df_ref.interpolate()
-                df['reference level'] = df_ref.values
+                df['reference level'] = df_ref['level'].values
 
             spe = df.corr(method='spearman').ix[0,1]
             ax = df.plot(kind='scatter', x='reference level', y='extracted sofi')
-            ax.text(0.9, 0.1, 'spearman corr.: ' + str(round(spe, 2)), horizontalalignment='center',
+            ax.text(0.8, 0.1, 'spearman corr.: ' + str(round(spe, 2)), horizontalalignment='center',
                     verticalalignment='center', transform=ax.transAxes, bbox=dict(facecolor='grey', alpha=0.3))
             plt.savefig(plot_file_path + '_corr.png', bbox_inches='tight')
             print('spearman_corr: ', spe)
@@ -290,14 +296,55 @@ class CCTVFloodExtraction(object):
         df.to_csv(signal_file_path)
 
         # plot flood_index and store it.
-        df.plot(figsize=(30, 10))
-        plt.xlabel('index (#)')
-        plt.ylabel('flood index (-)')
+        if 'reference level' in df.columns:
+            ax1 = df.plot(figsize=(30, 10), secondary_y=['reference level'])
+        else:
+            ax1 = df.plot(figsize=(30, 10))
+        ax1.set_xlabel('index (#)')
+        ax1.set_ylabel('flood index (-)')
         # plt.show()
         plt.savefig(plot_file_path + '_ts.png', bbox_inches='tight')
-        print('flood signal extracted')
 
         return df
+
+    def initialize_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
+
+        # characteristics of movie
+        width = 2 * size[1] + margin  # width of whole movie
+        height = size[0] * 2 + margin
+        line_y1 = size[0] + margin
+        line_y2 = 2 * size[0] + margin
+
+        geometry = {'w': width, 'h': height, 'dim': size[0], 'line_y1': line_y1, 'line_y2': line_y2, 'margin': margin}
+
+        # define video instance
+        fourcc = cv2.VideoWriter_fourcc(*vid_format)
+        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (width, height), True)
+        return vid, geometry
+
+    def write_image_to_vid(self, vid, preds, imgs, trend_path, geometry, n_img, b_ini):
+
+        # iterate over each image pair and concatenate toghether and put to video
+        for i, (pred, img) in enumerate(zip(preds, imgs)):
+            pred = cv2.cvtColor(pred, cv2.COLOR_RGB2BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            # concatenate pictures togehter with black margins
+            space_h = np.full((geometry['dim'], geometry['margin'], 3), 0).astype('uint8')
+            composition = np.concatenate((img, space_h, pred), axis=1)
+
+            space_w = np.full((geometry['margin'], geometry['w'], 3), 0).astype('uint8')
+            trend = cv2.imread(trend_path)
+            trend = cv2.resize(trend, (geometry['w'], geometry['dim']))
+            composition = np.concatenate((composition, space_w, trend), axis=0)
+
+            # draw line on trend graph at position x
+            plot_margin = 25
+            line_x = plot_margin + int((geometry['w'] - plot_margin - 5) / n_img * (i + b_ini))
+            cv2.line(composition, (line_x, geometry['line_y1']), (line_x, geometry['line_y2']), (0, 0, 255), 5)
+
+            vid.write(composition.astype('uint8'))  # write to video instance
+
+        return vid
 
     def create_prediction_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
         """ crate a movie by showing images and prediction as well as the trend compared with groundtruth
@@ -310,7 +357,7 @@ class CCTVFloodExtraction(object):
         img_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
         pred_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
 
-        plot_name = self.model_name + '__' + self.video_name + '__' + 'plot.png'
+        plot_name = self.model_name + '__' + self.video_name + '__' + 'plot_ts.png'
         trend_path = os.path.join(self.signal_dir, plot_name)
 
         # characteristics of movie
@@ -356,6 +403,52 @@ class CCTVFloodExtraction(object):
         cv2.destroyAllWindows()
         vid.release()
 
+    def run(self, run_types, config, batch_size=300):
+        """ runs the extraction with the defined work_types in batches
+
+            Args:
+                run_types (list): strings which indicates what should be runned, list should contain one of
+                                'import_video', 'extract_frames', 'extract_trend', 'create_prediction_video'
+                batch_size (int): number of elements per batch. run extraction of trend in batches because memory
+                                to small to load all images at once and store all predictions at once to perform the
+                                sofi extraction
+        """
+        if 'import_video' in run_types:
+            self.import_video(config['video_url'])
+
+        if 'extract_frames' in run_types:
+            self.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
+
+        if 'extract_trend' in run_types:
+            # create batches of 100 images and then predict and add to trend
+            all_img_paths = glob.glob(os.path.join(self.frame_dir, '*'))
+            all_img_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+            n_img = len(all_img_paths)
+            trend = np.empty(n_img)
+
+            trend_path = os.path.join(self.signal_dir, self.model_name + '__' + self.video_name + '__plot_ts.png')
+
+            output_video = os.path.join(file_base, 'predictions', self.model_name, self.video_name + '_pred.avi')
+            output_vid, geometry = self.initialize_movie(output_video, fps=20)
+
+            self.load_model(create_dir=False)
+
+            for b in range(0, n_img, batch_size):
+                print('Batch: ' + str(int(b/batch_size)) + '/' + str(int(n_img/batch_size)))
+                batch = all_img_paths[b:b + batch_size]
+                pred = self.predict_images(batch)
+                imgs = load_images(batch)
+                trend[b:b + batch_size] = self.flood_extraction(predictions=pred)
+                print('images predicted')
+
+                self.plot_sofi(trend, ref_path=ref_path)
+                pred_tr = transform_to_human_mask(pred, imgs)
+
+                output_vid = self.write_image_to_vid(output_vid, pred_tr, imgs, trend_path, geometry, n_img, b)
+
+            cv2.destroyAllWindows()
+            output_vid.release()
+
 
 if __name__ == '__main__':
     # for apple
@@ -382,6 +475,19 @@ if __name__ == '__main__':
         'names': ['garden', 'garage', 'living_room', 'roll_stairs', 'creek_flood', 'lockwitz', 'spinerstrasse', 'hamburg'],
         'sec': [12*60+22, 19*60+39, 2*60+7, 55, 49, 12*60+5, 12, 14*60+3]
     }
+    model_name = 'ft_l5b3e200f16_dr075i2res_lr'
+    config = [dict(
+        video_url='https://youtu.be/nrGBtQhAvo8',
+        video_file=os.path.join(file_base, 'videos', 'ChaskaAthleticPark.mp4'),
+        model_dir=os.path.join(file_base, 'models', model_name),
+        pred_dir=os.path.join(file_base, 'predictions', model_name),
+        frame_dir=os.path.join(file_base, 'frames'),
+        ref_file=os.path.join(file_base, 'frames', 'ChaskaAthleticPark.csv'),
+        output_video=os.path.join(file_base, 'predictions', 'ChaskaAtheleticPark_pred.avi'),
+        name='ChaskaAtheleticPark',
+        roi=[0, 0, 512, 512],
+        fps=1
+    )]
 
     frames = {
         'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5', 'HoustonHarveyGarage', 'HoustonHarveyGarden',
@@ -396,7 +502,7 @@ if __name__ == '__main__':
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i == 2:
+        if i in [1, 2]:
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
             frame_dir_flood = os.path.join(file_base, 'frames')
             vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
@@ -404,9 +510,8 @@ if __name__ == '__main__':
             cr_win = dict(top=frames['roi'][i][0], left=frames['roi'][i][1], width=frames['roi'][i][2], height=frames['roi'][i][3])
             cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir_flood, frame_dir=frame_dir_flood,
                                       video_name=name, crop_window=cr_win)
-            cfe.load_model(create_dir=False)
-            cfe.flood_extraction(ref_path=ref_path)
-            # cfe.create_prediction_movie(vid_dir_flood, fps=frames['fps'][i])
+            cfe.run(['extract_trend'], config)
+
 
     # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
     # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')

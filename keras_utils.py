@@ -57,7 +57,10 @@ def load_masks(path):
 
 
 def load_images(path, sort=False, target_size=None, max_files=200):
-    files = glob.glob(os.path.join(path, '*'))
+    if len(path) > 1:
+        files=path
+    else:
+        files = glob.glob(os.path.join(path, '*'))
     if sort is True:
         files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
     first_img = load_img(files[0])
@@ -84,9 +87,9 @@ def channel_mean_stdev(img):
     return m, s
 
 
-def transform_to_human_mask(predictions, class_mapping={0: [0, 0, 0], 1: [0, 0, 255]}):
+def transform_to_human_mask(predictions, images, class_mapping={0: [0, 0, 0], 1: [0, 0, 255]}):
     pred_transformed = []
-    for pred in enumerate(predictions):
+    for pred, img in zip(predictions, images):
         best_pred = np.argmax(pred, axis=-1)  # take label of maximum probability
 
         # # resize the color map to fit image
@@ -98,6 +101,7 @@ def transform_to_human_mask(predictions, class_mapping={0: [0, 0, 0], 1: [0, 0, 
         for label, rgb in class_mapping.items():
             prediction[prediction[:, :, 0] == label] = rgb
 
+        prediction = cv2.addWeighted(np.uint8(img), 0.8, np.uint8(prediction), 0.5, 0)
         pred_transformed.append(prediction)
 
     return pred_transformed
