@@ -1,9 +1,10 @@
 import numpy as np
+import os
 import keras
 from skimage import exposure
 import imgaug as ia
 from imgaug import augmenters as iaa
-from keras.preprocessing.image import img_to_array, load_img
+from keras.preprocessing.image import img_to_array, load_img, save_img
 
 
 class ImageGenerator(keras.utils.Sequence):
@@ -43,7 +44,7 @@ class ImageGenerator(keras.utils.Sequence):
                     blur_range=0.0, shear_range=0.0, prob=0.25)
 
     def __init__(self, img_paths, masks=None, batch_size=3, dim=(512, 512), n_channels=3, n_classes=2, shuffle=True, normalize=None,
-                 augmentation=True, aug_dict=aug_dict):
+                 augmentation=True, save_to_dir=None, aug_dict=aug_dict):
         self.dim = dim
         self.batch_size = batch_size
         self.masks = masks
@@ -54,6 +55,7 @@ class ImageGenerator(keras.utils.Sequence):
         self.normalize = normalize
         self.augmentation = augmentation
         self.aug_dict = aug_dict
+        self.save_to_dir = save_to_dir
         self.on_epoch_end()
 
         if self.augmentation is True:
@@ -88,20 +90,20 @@ class ImageGenerator(keras.utils.Sequence):
         sometimes = lambda aug: iaa.Sometimes(a['prob'], aug)
 
         augmenters = [iaa.Fliplr(a['horizontal_flip'], name='fliplr'),  # flip horizontally
-                      iaa.Flipup(a['vertical_flip'], name='flipup'),  # flip vertically
-                      iaa.CropAndPad(precent=a['crop_range'], sample_independently=False, name='crop'),  # random crops
+                      iaa.Flipud(a['vertical_flip'], name='flipup'),  # flip vertically
+                      iaa.CropAndPad(percent=a['crop_range'], sample_independently=False, name='crop'),  # random crops
                       iaa.Affine(
-                          scale={a['zoom_range']},  # scale images to % of their size
+                          scale=a['zoom_range'],  # scale images to % of their size
                           translate_percent={"x": a['width_shift_range'], "y": a['height_shift_range']},  # translate by percent
                           rotate=a['rotation_range'],  # rotate by -45 to +45 degrees
                           shear=a['shear_range'],  # shear by -16 to +16 degrees
                           order=[0, 1],  # use nearest neighbour or bilinear interpolation (fast)
                           mode='wrap',  # use any of scikit-image's warping modes
                           name='affine'),
-                      sometimes(iaa.ContrastNormalization(a['contrast_range']), name='contrast'),  # change contrast
-                      sometimes(iaa.GaussianBlur(sigma=a['blur_range']), name='blur'),  # Adding blur
-                      sometimes(iaa.Grayscale(alpha=a['grayscale_range']), name='grayscale'),  # reduce color of image
-                      sometimes(iaa.Multiply(a['brightness_range']), name='brightness')]  # darker or brighter
+                      sometimes(iaa.ContrastNormalization(a['contrast_range'], name='contrast')),  # change contrast
+                      sometimes(iaa.GaussianBlur(sigma=a['blur_range'], name='blur')),  # Adding blur
+                      sometimes(iaa.Grayscale(alpha=a['grayscale_range'], name='grayscale')),  # reduce color of image
+                      sometimes(iaa.Multiply(a['brightness_range'], name='brightness'))]  # darker or brighter
 
         return iaa.Sequential(augmenters, random_order=True)
 
@@ -136,10 +138,9 @@ class ImageGenerator(keras.utils.Sequence):
                 msk = load_img(self.masks[img_path])
                 y[i, ] = img_to_array(msk)[:, :, 0].astype(np.int8)
 
-
         # Augment image and mask
         if self.augmentation is True:
-            x, y = self.__data_augmentation(x, y)
+            x, y = self.__data_augmentation(x, y, img_paths_temp)
 
         # Normalize batch images
         if self.normalize is not None:
@@ -174,15 +175,21 @@ class ImageGenerator(keras.utils.Sequence):
 
         return img_norm
 
-    def __data_augmentation(self, x, y, seq):
+    def __data_augmentation(self, x, y, im_paths):
         """augments data and labels, if necessary
 
         """
         def activator(images, augmenter, parents, default):
             return False if augmenter.name in ['blur', 'contrast', 'grayscale', 'brightness'] else default
 
-        seq_det = seq.to_deterministic()
+        seq_det = self.seq.to_deterministic()
         x_aug = seq_det.augment_images(x)
         y_aug = seq_det.augment_images(y, hooks=ia.HooksImages(activator=activator))
+
+        if self.save_to_dir is not None:
+            for p in im_paths:
+                base, tail = os.path.split(p)
+                save_dir = os.path.join(self.save_to_dir, tail)
+                save_img(save_dir, x_aug)
 
         return x_aug, y_aug

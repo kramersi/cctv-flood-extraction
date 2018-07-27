@@ -10,8 +10,8 @@ from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
 
-from keras_utils import f1_loss, f1_np, iou_np, precision_np, recall_np, error_np, load_masks, load_images, channel_mean_stdev, store_prediction
-
+from keras_utils import f1_loss, f1_np, iou_np, precision_np, recall_np, error_np, load_masks, load_images, channel_mean_stdev, store_prediction, load_img_msk_paths
+from image_generator import ImageGenerator
 
 def conv_block(m, dim, acti, bn, res, do=0):
     """ creates convolutional block for creating u-net
@@ -98,7 +98,7 @@ class UNet(object):
         # img_eq = exposure.equalize_hist(x_norm)
         return x_norm
 
-    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=4, augmentation=True, normalisation=True, base_dir=None, learning_rate=0.01):
+    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=3, augmentation=True, normalisation=True, base_dir=None, learning_rate=0.01):
         """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
 
             example of defining paths
@@ -106,11 +106,11 @@ class UNet(object):
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-        seed = 1234  # Provide the same seed and keyword arguments to the fit and flow methods
+        # seed = 1234  # Provide the same seed and keyword arguments to the fit and flow methods
 
-        x_tr = load_images(os.path.join(train_dir, 'images'))  # load training pictures in numpy array
-        shape = x_tr.shape  # pic_nr x width x height x depth
-        n_train = shape[0]  # len(image_generator)
+        # x_tr = load_images(os.path.join(train_dir, 'images'))  # load training pictures in numpy array
+        # shape = x_tr.shape  # pic_nr x width x height x depth
+        # n_train = shape[0]  # len(image_generator)
 
         # define callbacks
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
@@ -135,81 +135,99 @@ class UNet(object):
         # summary of parameters in each layer
         self.model.summary()
 
-        y_tr = load_masks(os.path.join(train_dir, 'masks'))  # load mask arrays
-        x_va = load_images(os.path.join(valid_dir, 'images'))
-        y_va = load_masks(os.path.join(valid_dir, 'masks'))
-        n_valid = x_va.shape[0]
+        path_tr = load_img_msk_paths(train_dir)
+        path_va = load_img_msk_paths(valid_dir)
+        aug_path = os.path.join(model_dir, 'augmentations')
 
-        # data normalisation
-        if normalisation is True:
-            x_tr = self.normalize(x_tr)
-            x_va = self.normalize(x_va)
+        n_tr = len(path_tr)
+        n_va = len(path_va)
 
-        # create one-hot
-        y_tr = to_categorical(y_tr, self.n_class)
-        y_va = to_categorical(y_va, self.n_class)
+        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(-8, 8),
+                    width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.7, 1.3),
+                    zoom_range=(0.5, 1.2), grayscale_range=(0.0,1.0), brightness_range=(0.5, 1.5), crop_range=(0.5, 1.5),
+                    blur_range=(0.0, 0.5), shear_range=(-6, 6), prob=0.25)
 
-        if augmentation:
-            data_gen_args = dict(featurewise_center=False,
-                                 featurewise_std_normalization=False,
-                                 rotation_range=0,
-                                 width_shift_range=0.2,
-                                 height_shift_range=0.2,
-                                 zoom_range=(0.5, 1),
-                                 horizontal_flip=True,
-                                 img_aug=False,
-                                 fill_mode='reflect')
+        train_generator = ImageGenerator(list(path_tr.keys()), masks=path_tr, batch_size=batch_size, dim=(512, 512), shuffle=True,
+                                         normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict)
 
-            # use affinity transform for masks
-            mask_datagen = ImageDataGenerator(**data_gen_args)
+        valid_generator = ImageGenerator(list(path_va.keys()), masks=path_va, batch_size=batch_size, dim=(512, 512), shuffle=True,
+                                         normalize='std_norm', augmentation=False)
 
-            # add picture worsening on images not on masks
-            data_gen_args['img_aug'] = True
-            data_gen_args['blur_range'] = (0.0, 1.2)
-            # data_gen_args['contrast_range'] = (0.9, 1.1)
-            # data_gen_args['grayscale_range'] = (0.0, 0.1)
+        # y_tr = load_masks(os.path.join(train_dir, 'masks'))  # load mask arrays
+        # x_va = load_images(os.path.join(valid_dir, 'images'))
+        # y_va = load_masks(os.path.join(valid_dir, 'masks'))
+        # n_valid = x_va.shape[0]
 
-            image_datagen = ImageDataGenerator(**data_gen_args)
+        # # data normalisation
+        # if normalisation is True:
+        #     x_tr = self.normalize(x_tr)
+        #     x_va = self.normalize(x_va)
 
-            ## fit the augmentation model to the images and masks with the same seed
-            image_datagen.fit(x_tr, augment=True, seed=seed)
-            mask_datagen.fit(y_tr, augment=True, seed=seed)
-            # create image generator for online data augmentation
-            aug_path = os.path.join(model_dir, 'augmentations')
-            image_generator = image_datagen.flow(
-                x_tr,
-                batch_size=batch_size,
-                shuffle=True,
-                seed=seed)
-                # save_to_dir=aug_path)
-            ## set the parameters for the data to come from (masks)
-            mask_generator = mask_datagen.flow(
-                y_tr,
-                batch_size=batch_size,
-                shuffle=True,
-                seed=seed)
+        # # create one-hot
+        # y_tr = to_categorical(y_tr, self.n_class)
+        # y_va = to_categorical(y_va, self.n_class)
 
-            # combine generators into one which yields image and masks
-            train_generator = zip(image_generator, mask_generator)
-            #train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, shuffle=True, seed=seed, save_to_dir=aug_path)
-            valid_generator = (x_va, y_va)
+        # if augmentation:
+        #     data_gen_args = dict(featurewise_center=False,
+        #                          featurewise_std_normalization=False,
+        #                          rotation_range=0,
+        #                          width_shift_range=0.2,
+        #                          height_shift_range=0.2,
+        #                          zoom_range=(0.5, 1),
+        #                          horizontal_flip=True,
+        #                          img_aug=False,
+        #                          fill_mode='reflect')
+        #
+        #     # use affinity transform for masks
+        #     mask_datagen = ImageDataGenerator(**data_gen_args)
+        #
+        #     # add picture worsening on images not on masks
+        #     data_gen_args['img_aug'] = True
+        #     data_gen_args['blur_range'] = (0.0, 1.2)
+        #     # data_gen_args['contrast_range'] = (0.9, 1.1)
+        #     # data_gen_args['grayscale_range'] = (0.0, 0.1)
+        #
+        #     image_datagen = ImageDataGenerator(**data_gen_args)
+        #
+        #     ## fit the augmentation model to the images and masks with the same seed
+        #     image_datagen.fit(x_tr, augment=True, seed=seed)
+        #     mask_datagen.fit(y_tr, augment=True, seed=seed)
+        #     # create image generator for online data augmentation
+        #     aug_path = os.path.join(model_dir, 'augmentations')
+        #     image_generator = image_datagen.flow(
+        #         x_tr,
+        #         batch_size=batch_size,
+        #         shuffle=True,
+        #         seed=seed)
+        #         # save_to_dir=aug_path)
+        #     ## set the parameters for the data to come from (masks)
+        #     mask_generator = mask_datagen.flow(
+        #         y_tr,
+        #         batch_size=batch_size,
+        #         shuffle=True,
+        #         seed=seed)
+        #
+        #     # combine generators into one which yields image and masks
+        #     train_generator = zip(image_generator, mask_generator)
+        #     #train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, shuffle=True, seed=seed, save_to_dir=aug_path)
+        #     valid_generator = (x_va, y_va)
 
-            # train unet with image_generator
-            self.model.fit_generator(train_generator,
-                                     validation_data=valid_generator,
-                                     steps_per_epoch=n_train / batch_size,
-                                     validation_steps=n_valid / batch_size,
-                                     epochs=epochs,
-                                     verbose=1,
-                                     callbacks=[mc, tb, es, lr],
-                                     use_multiprocessing=False,
-                                     workers=4)
-        else:
-            self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
-                           shuffle=True, callbacks=[mc, tb, lr])
+        # train unet with image_generator
+        self.model.fit_generator(train_generator,
+                                 validation_data=valid_generator,
+                                 steps_per_epoch=n_tr / batch_size,
+                                 validation_steps=n_va / batch_size,
+                                 epochs=epochs,
+                                 verbose=0,
+                                 # callbacks=[mc, tb, es, lr],
+                                 use_multiprocessing=False,
+                                 workers=4)
+        # else:
+        #     self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
+        #                    shuffle=True, callbacks=[mc, tb, lr])
 
-        scores = self.model.evaluate(x_va, y_va, batch_size=batch_size, verbose=1)
-        print('scores', scores)
+        #scores = self.model.evaluate_generator(valid_generator, workers=4, verbose=0)
+        #print('scores', scores)
 
     def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None, csv_path=None):
 
@@ -290,7 +308,7 @@ if __name__ == '__main__':
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['ref_l5b3e200f16_dr075i2res_lr', 'ref_l3b3e200f32_dr075i2', 'aug_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
+    model_names = ['ref_l5b3e200f16_dr075i2res_lr', 'ref_l3b3e200f32_dr075i2', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
     aug = [False, False, True, True]
     feat = [16, 32, 16, 32, 16]
     ep = [100, 200, 200, 200, 200]
@@ -302,7 +320,7 @@ if __name__ == '__main__':
     # bd = [os.path.join(file_base, 'models', 'ft_l5b3e200f16_dr075i2res_lr'), None, None]
 
     for i, model_name in enumerate(model_names):
-        if i == 4:
+        if i == 2:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
@@ -353,16 +371,16 @@ if __name__ == '__main__':
             unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
             # unet.model.summary()
 
-            # unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], learning_rate=0.001)
+            unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], learning_rate=0.001)
             # unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
-            test_dir = os.path.join(file_base, 'video_masks', '*')
-            for test in glob.glob(test_dir):  # test for all frames in directory
-                base, tail = os.path.split(test)
-                pred = os.path.join(model_dir, 'pred_' + tail)
-                csv_path = os.path.join(model_dir, tail + '.csv')
-                test_val = os.path.join(test, 'validate')
-                if not os.path.isdir(pred):
-                    os.mkdir(pred)
-
-                unet.test(model_dir, test_val, pred, batch_size=3, csv_path=csv_path)
+            # test_dir = os.path.join(file_base, 'video_masks', '*')
+            # for test in glob.glob(test_dir):  # test for all frames in directory
+            #     base, tail = os.path.split(test)
+            #     pred = os.path.join(model_dir, 'pred_' + tail)
+            #     csv_path = os.path.join(model_dir, tail + '.csv')
+            #     test_val = os.path.join(test, 'validate')
+            #     if not os.path.isdir(pred):
+            #         os.mkdir(pred)
+            #
+            #     unet.test(model_dir, test_val, pred, batch_size=3, csv_path=csv_path)
 

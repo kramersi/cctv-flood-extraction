@@ -290,6 +290,7 @@ class CCTVFloodExtraction(object):
             ax.text(0.8, 0.1, 'spearman corr.: ' + str(round(spe, 2)), horizontalalignment='center',
                     verticalalignment='center', transform=ax.transAxes, bbox=dict(facecolor='grey', alpha=0.3))
             plt.savefig(plot_file_path + '_corr.png', bbox_inches='tight')
+            plt.close()
             print('spearman_corr: ', spe)
 
         # export flood_index to csv.
@@ -304,7 +305,7 @@ class CCTVFloodExtraction(object):
         ax1.set_ylabel('flood index (-)')
         # plt.show()
         plt.savefig(plot_file_path + '_ts.png', bbox_inches='tight')
-
+        plt.close()
         return df
 
     def initialize_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
@@ -498,11 +499,11 @@ if __name__ == '__main__':
         'ref': [os.path.join(file_base, 'frames', 'ChaskaAthleticPark.csv'), 'file_name', 'file_name',
                 os.path.join(file_base, 'frames', 'HoustonHarveyGarage.csv'), None, None]
     }
-    model_name = 'ft_l5b3e200f16_dr075i2res_lr'
+    model_name = 'aug_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i in [1, 2]:
+        if i in [0, 1, 2, 3]:
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
             frame_dir_flood = os.path.join(file_base, 'frames')
             vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
