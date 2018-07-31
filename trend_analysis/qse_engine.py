@@ -495,7 +495,6 @@ class GeneralQSE(object):
         b = features / stdev  # normalise features by their standard deviation, necessary to use norm.cdf
 
         # get the max of each feature over time and take a procentage of it, attention to second derivative.
-
         deltas = np.nanmax(np.absolute(b), axis=0) * self.delta
 
         # if deltas.size > 2:
