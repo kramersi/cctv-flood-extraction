@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from trend_analysis.qse_engine import GeneralQSE
-from trend_analysis.qse_utils import square_diff, cosine_diff, cross_corr, find_csv_filenames, tune_bandwidth
+from trend_analysis.qse_utils import square_diff, cosine_diff, cross_corr, cross_entropy, find_csv_filenames, tune_bandwidth
 from scipy.optimize import minimize
 from scipy.stats import spearmanr
 
@@ -14,7 +14,7 @@ def information_thres(x, y):
     return corr > 0.5
 
 
-def plot_qse(res, res_gt, coeff_nr=3, prim_nr=4, prim=['Flat', 'Down', 'Zero', 'Up']):
+def plot_qse(res, res_gt, coeff_nr=3, prim_nr=4, prim=['Flat', 'Down', 'Zero', 'Up'], save_path=None, text=None):
     offset = 2 * coeff_nr + 1
     state_range = np.arange(offset + prim_nr, offset + 2 * prim_nr)
     nr = np.arange(res.shape[0])
@@ -23,7 +23,7 @@ def plot_qse(res, res_gt, coeff_nr=3, prim_nr=4, prim=['Flat', 'Down', 'Zero', '
     ratios = [2] + [1] * 2
 
     # plot signal and filtered signal
-    fig, ax = plt.subplots(nrows=subplot_nr, ncols=1, sharex=True, figsize=(12, 8),
+    fig, ax = plt.subplots(nrows=subplot_nr, ncols=1, sharex=True, figsize=(12, 6),
                            gridspec_kw={'height_ratios': ratios})
     l1 = ax[0].plot(nr, res[:, 0], 'k-', label='raw SOFI')
     l2 = ax[0].plot(nr, res[:, 1], 'g-', label='smoothed SOFI')
@@ -38,6 +38,9 @@ def plot_qse(res, res_gt, coeff_nr=3, prim_nr=4, prim=['Flat', 'Down', 'Zero', '
     lns = l1 + l2 + l3
     labs = [l.get_label() for l in lns]
     ax[0].legend(lns, labs, loc='lower right')
+    if text is not None:
+        ax[0].text(0.8, 0.95, text, transform=ax[0].transAxes, fontsize=12,
+                      verticalalignment='top', bbox=dict(facecolor='grey', alpha=0.3))
 
     # plot states probabilities
     for i, r in enumerate([res, res_gt]):
@@ -51,6 +54,8 @@ def plot_qse(res, res_gt, coeff_nr=3, prim_nr=4, prim=['Flat', 'Down', 'Zero', '
     axi.set_xlabel('Sample index [-]')
     plt.tight_layout()
     plt.show()
+    if save_path is not None:
+        plt.savefig(save_path)
     # # old way of printing
     # for i, r in enumerate(state_range):
     #     axi = ax[i+1]
@@ -100,15 +105,14 @@ def plot_presentation():
              ['F+', 'Q0', epsi], ['F+', 'L', 0.33], ['F+', 'U', 0.33], ['F+', 'F+', 0.33 * stay]]
 
     bw_opt_sens = dict(n_support=80, min_support=40, max_support=400, ici_span=4.4, rel_threshold=0.85, irls=False)
-    bw_opt_sofi = dict(n_support=350, min_support=30, max_support=350, ici_span=3.4, rel_threshold=0.85, irls=True)
+    bw_opt_sofi = dict(n_support=350, min_support=30, max_support=350, ici_span=4.4, rel_threshold=0.85, irls=True)
 
     qse_sens = GeneralQSE(kernel='tricube', order=3, delta=0.05, transitions=trans, bw_estimation='fix', bw_options=bw_opt_sens)
-    qse_sofi = GeneralQSE(kernel='tricube', order=3, delta=0.05, transitions=trans, bw_estimation='fix', bw_options=bw_opt_sofi)
+    qse_sofi = GeneralQSE(kernel='tricube', order=3, delta=0.2, transitions=trans, bw_estimation='fix', bw_options=bw_opt_sofi)
 
     # run algorithms
     res_sofi = qse_sofi.run(y_sofi)
     res_sens = qse_sens.run(y_sens)
-    plot_qse(res_sofi, res_sens)
 
     # calculate difference
     coeff_nr = 3
@@ -118,10 +122,16 @@ def plot_presentation():
     feat_sens = res_sens[:, 1 + 2 * coeff_nr + prim_nr:2 * coeff_nr + 2 * prim_nr + 1]
     feat_sofi = res_sofi[:, 1 + 2 * coeff_nr + prim_nr:2 * coeff_nr + 2 * prim_nr + 1]
 
-    cross_corr(sig_sens, sig_sofi, col=1)
-    square_diff(feat_sens, feat_sofi)
-    cosine_diff(feat_sens, feat_sofi, axis=1)
-    cosine_diff(feat_sens, feat_sofi, axis=0)
+
+    ccor = cross_corr(sig_sofi, sig_sens, col=1)
+    ce = cross_entropy(feat_sofi, feat_sens)
+    square_diff(feat_sofi, feat_sens)
+    cosine_diff(feat_sofi, feat_sens, axis=1)
+    cosine_diff(feat_sofi, feat_sens, axis=0)
+
+    # plot results
+    textstr = 'cross corr$=%.2f$\ncross entropy$=%.2f$' % (ccor, ce)
+    plot_qse(res_sofi, res_sens, text=textstr)
 
     print('finish')
 

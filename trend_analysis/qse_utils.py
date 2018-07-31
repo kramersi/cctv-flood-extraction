@@ -4,10 +4,12 @@ import matplotlib.pylab as plt
 from scipy.stats import spearmanr
 from os import listdir
 
-### Difference Metrics ###
-def square_diff(x1, x2, plot=False):
 
-    err = (x1 - x2)**2
+# Difference Metrics (p=prediction, t=truth)
+# ------------------
+def square_diff(p, t, plot=False):
+
+    err = (p - t)**2
 
     if plot:
         plt.figure(2)
@@ -19,11 +21,11 @@ def square_diff(x1, x2, plot=False):
     return np.sum(err)/err.size
 
 
-def cosine_diff(x1, x2, axis=0, plot=False):
+def cosine_diff(p, t, axis=0, plot=False):
 
-    s_up = np.sum(x1*x2, axis=axis)
-    s1 = np.sqrt(np.sum(x1**2, axis=axis))
-    s2 = np.sqrt(np.sum(x2**2, axis=axis))
+    s_up = np.sum(p*t, axis=axis)
+    s1 = np.sqrt(np.sum(p**2, axis=axis))
+    s2 = np.sqrt(np.sum(t**2, axis=axis))
     s = s_up / (s1 * s2)
 
     if plot:
@@ -36,24 +38,34 @@ def cosine_diff(x1, x2, axis=0, plot=False):
     return np.mean(1 - s)
 
 
-def cross_corr(x1, x2, col=4):
+def cross_entropy(p, t, eps=1e-9):
+    p = np.clip(p, eps, 1. - eps)
+    n = p.shape[0]
+    ce = -np.sum(np.sum(t*np.log(p+eps), axis=1)) / n
+
+    print('cross_entropy', ce)
+
+    return ce
+
+
+def cross_corr(p, t, col=4):
     corr_list = []
     if col > 1:
         for i in range(col):
-            sc = np.corrcoef(x1[:, i], x2[:, i])
+            sc = np.corrcoef(p[:, i], t[:, i])
             corr_list.append(sc[0, 1])
         corr = np.mean(corr_list)
     else:
-        corr = np.corrcoef(x1, x2)[0, 1]
+        corr = np.corrcoef(p, t)[0, 1]
 
     print('crosscorr: ', corr)
 
     return corr
 
 
-def spearman_corr(x1, x2, axis=0, col=4):
+def spearman_corr(p, t, axis=0, col=4):
 
-    s_corr = spearmanr(x1, x2, axis=axis)[0]
+    s_corr = spearmanr(p, t, axis=axis)[0]
     s_tot = np.array([s_corr[i, i + col] for i in range(int(s_corr.shape[0]/2))])
     s_mean = np.mean(abs(s_tot))
 
@@ -61,7 +73,9 @@ def spearman_corr(x1, x2, axis=0, col=4):
 
     return s_mean
 
+
 # calculations for tuning
+# -----------------------
 def find_csv_filenames(path_to_dir, suffix=".csv"):
     filenames = listdir(path_to_dir)
     return [filename for filename in filenames if filename.endswith(suffix)]
