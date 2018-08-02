@@ -60,6 +60,7 @@ def stdev_estimation(signal):
     diffs = np.absolute(np.diff(signal, axis=ax))
 
     if ax == 0:
+        #return np.mean(diffs, axis=ax) / 0.9539
         non_zero_ind = np.nonzero(diffs)[0]
         if non_zero_ind.size == 0:
             return 0.0
@@ -126,10 +127,16 @@ def non_negative_validation(value):
     Validate if value is negative and raise Validation error
 
     """
-    if value <= 0:
-        raise ValueError("The Value must not be negative.")
+    if isinstance(value, list):
+        if any(v < 0 for v in value):
+            raise ValueError("The Values in the list must not be negative")
+        else:
+            return value
     else:
-        return value
+        if value < 0:
+            raise ValueError("The Value must not be negative.")
+        else:
+            return value
 
 
 def extract_primitives(transitions):
@@ -186,8 +193,8 @@ class GeneralQSE(object):
     transition between primitives.
 
     Args:
-        sigma_eps (float): pre-supposed measurement error variance, its now not presupposed but calculated with
-        standard deviation of filtered signal and raw signal.
+        sigma_eps (float, str): pre-supposed measurement error variance, if set to 'auto' its not presupposed but
+            calculated with standard deviation of filtered signal and raw signal.
         order (int): order of regression model, must be higher than 2 (2: linear, 3: quadratic, etc)
         delta (float): bandwidth parameter for the probability of zero-valued derivative. It indicates at which
             Percent of the maximum signal value, 1st and 2nd derivative the Probability to be in zero state is 68%.
@@ -295,14 +302,14 @@ class GeneralQSE(object):
 
     bw_option = dict(n_support=None, min_support=10, max_support=100, ici_span=4.4, rel_threshold=0.85, m_estimator=True)
 
-    def __init__(self, kernel='tricube', order=3, delta=0.05, transitions=allowed_trans, bw_estimation='fix',
+    def __init__(self, kernel='tricube', order=3, delta=0.05, sigma_eps='auto', transitions=allowed_trans, bw_estimation='fix',
                  bw_options=bw_option):
 
         # initialisation of kernel regression properties
         self.bw_estimation = bw_estimation
         self.bw_options = bw_options
         self.n_support = bw_options['n_support']
-        self.sigma_eps = 1
+        self.sigma_eps = sigma_eps
         self.order = order_validation(order)
         self.kernel = kernel_validation(kernel)
         self.delta = non_negative_validation(delta)
@@ -405,7 +412,7 @@ class GeneralQSE(object):
         """
         Make polynomial kernel regression by creating array of all moving windows, calculating projection matrix and
         calculating.
-        # Make signal longer at beginnig and end by the half of the delay, that filter exactly starts at first entry
+        # Make signal longer at beginning and end by the half of the delay, that filter exactly starts at first entry
         # and not half of delay later. It does so by taking the nearest value and multiplies it.
         Args:
             signal: signal to be smoothed
@@ -455,17 +462,24 @@ class GeneralQSE(object):
         sig_n = y_stacks.shape[0]
         influence_matrix = (self.regr_basis.dot(proj_matrix))
         sigmas = np.full((sig_n, self.coeff_nr), np.nan)
-
+        std_res = np.empty(sig_n)
         for i in range(sig_n):
             residuals = y_stacks.T[:, i] - np.dot(influence_matrix, y_stacks.T[:, i])
-            sigma_eps = max(np.std(residuals), min_stdev)
+
+            if self.sigma_eps == 'auto':
+                sigma_eps = max(np.std(residuals), self.precision)
+            else:
+                sigma_eps = self.sigma_eps
+
             sigma_b = (proj_matrix * sigma_eps).dot(proj_matrix.T)
             stdev_b = np.diag(sigma_b) ** (1 / 2)  # point-wise standard deviations out of diagonal covariance matrix
             stdev_b = stdev_b[0:self.coeff_nr]
 
-            sigmas[i, :] = stdev_b
+            std_res[i] = stdev_b[0]
+            #stdev_b[0] = min_stdev
+            sigmas[i, :] = stdev_b  # [std, std, std] * stdev_b / stdev_b[0]
 
-        return sigmas
+        return sigmas, std_res
 
     def local_polynom_regression(self, signal, bw, min_stdev=precision):
 
@@ -479,9 +493,9 @@ class GeneralQSE(object):
         else:
             # only if all values are not nan, but this is not the case because signal interpolated at beginning
             features = proj_matrix.dot(y_stacks.T).T
-            stdev = self.coefficient_uncertainty(proj_matrix, y_stacks, min_stdev)
+            stdev, std_res = self.coefficient_uncertainty(proj_matrix, y_stacks, min_stdev)
 
-        return features, stdev
+        return features, stdev, std_res
 
     def infer_probabilities(self, features, stdev):
         """ calculate probabilities of selected primitives out of polynom features and their standard deviation
@@ -492,24 +506,24 @@ class GeneralQSE(object):
             stdev (ndarray): standard deviation of the polynom coefficients
 
         """
-        b = features / stdev  # normalise features by their standard deviation, necessary to use norm.cdf
+        #b = features / stdev  # normalise features by their standard deviation, necessary to use norm.cdf
 
         # get the max of each feature over time and take a procentage of it, attention to second derivative.
-        deltas = np.nanmax(np.absolute(b), axis=0) * self.delta
+        deltas = np.nanmax(np.absolute(features), axis=0) * self.delta  # np.nanmax(np.absolute(b), axis=0) * [0.2, self.delta, self.delta]
 
         # if deltas.size > 2:
         #     deltas[-1] = deltas[-1]*2
         #     deltas[-2] = deltas[-2]*2
 
         # Convert regression coefficients to probabilities for qualitative state
-        prob_p = norm.logcdf(b - deltas)
-        prob_n = norm.logcdf(-b - deltas)
-        prob_pn = norm.logcdf(deltas - b)
+        prob_p = norm.logcdf((features - deltas) / (stdev))
+        prob_n = norm.logcdf((-features - deltas) / (stdev))
+        prob_pn = norm.logcdf((deltas - features) / (stdev))
         prob_0 = prob_pn + np.log1p(-np.exp(prob_n-prob_pn))
 
-        params = {'pos': prob_p, 'neg': prob_n, 'zero': prob_0, 'ignore': np.zeros(b.shape)}
+        params = {'pos': prob_p, 'neg': prob_n, 'zero': prob_0, 'ignore': np.zeros(features.shape)}
 
-        py = np.zeros((b.shape[0], self.prim_nr))
+        py = np.zeros((features.shape[0], self.prim_nr))
 
         # collect for each primitive the right probability and adds them together (assume independent probabilities)
         for i, prim in enumerate(self.primitives):  # iterate over primitives
@@ -606,7 +620,11 @@ class GeneralQSE(object):
                 maxi += 1
 
             features[i, :] = feature
-            sigma_eps = max(np.std(_w_err), d)
+
+            if self.sigma_eps == 'auto':
+                sigma_eps = max(np.std(_w_err), d)
+            else:
+                sigma_eps = self.sigma_eps
             sigma_b = (proj_matrix * sigma_eps).dot(proj_matrix.T)
             stdev_b = np.diag(sigma_b) ** (1 / 2)  # point-wise standard deviations out of diagonal covariance matrix
             stdev_b = stdev_b[0:self.coeff_nr]
@@ -684,13 +702,13 @@ class GeneralQSE(object):
         all_stdev = np.full(dim, np.nan)
         all_features = np.full(dim, np.nan)
 
-        # iterate over the bandwidths, make local polynom regression and caluclate the confidence intervalls
+        # iterate over the bandwidths, make local polynom regression and calculate the confidence intervals
         for j, h in enumerate(hs):
             print('calculate bandwidth... ', h)
-            features, stdev = self.local_polynom_regression(signal, h, min_stdev=stdev_est)
+            features, stdev, std_res = self.local_polynom_regression(signal, h, min_stdev=stdev_est)
             feature_0 = features[:, 0]
-            upper[:, j] = feature_0 + ici_span * stdev_est
-            lower[:, j] = feature_0 - ici_span * stdev_est
+            upper[:, j] = feature_0 + ici_span * std_res
+            lower[:, j] = feature_0 - ici_span * std_res
             all_stdev[:, :, j] = stdev
             all_features[:, :, j] = features
 
@@ -707,12 +725,13 @@ class GeneralQSE(object):
 
         # extract best index, attention: if all false then argmax gives first index but should take last index
         best_idx = np.argmax(criteria_mask, axis=1)
-        best_idx = np.array([nh - 1 if idx == 0 and not criteria_mask[j, idx] else idx for j, idx in enumerate(best_idx)])
+        best_idx = np.array([nh-1 if idx == 0 and not criteria_mask[j, idx] else idx for j, idx in enumerate(best_idx)])
 
         # smooth the choosen bandwidth index to avoid unnecessary jumps
         smoothed_idx = pd.Series(best_idx).rolling(self.ici_window, center=True).mean()
         smoothed_idx = smoothed_idx.fillna(method='ffill')
         smoothed_idx = smoothed_idx.fillna(method='bfill').values.astype(int)
+        smoothed_idx = best_idx
 
         # select the features and standard deviation of the chosen bandwidth
         nx_arange = np.arange(nx)
@@ -742,7 +761,7 @@ class GeneralQSE(object):
         # extract features (polynomial coefficients) and std_deviation dependend on the bandwidth estimation
         if self.bw_estimation == 'fix':
             stdev_est = stdev_estimation(signal)
-            all_features, all_stdev = self.local_polynom_regression(signal, bw_init, min_stdev=stdev_est)
+            all_features, all_stdev, _ = self.local_polynom_regression(signal, bw_init, min_stdev=stdev_est)
 
         elif self.bw_estimation == 'gcv':
             # methods: TNC, SLSQP, Nelder-Mead, COBYLA, L-BFGS-B
@@ -774,13 +793,13 @@ class GeneralQSE(object):
             best_bw = hs[np.argmin(maxgcv)]
             print('best bandwidth found: ', best_bw)
 
-            all_features, all_stdev = self.local_polynom_regression(signal, best_bw, stdev_est)
+            all_features, all_stdev, _ = self.local_polynom_regression(signal, best_bw, stdev_est)
 
         elif self.bw_estimation == 'ici':
             # featrues and stddev of variable bandwidth by applying the relative intersection of confidence intervals (RICI)
             all_features, all_stdev, best_bw = self.ici_method(signal)
 
-        # calculate the probabilieties out of features and stdev
+        # calculate the probabilities out of features and stdev
         all_primitive_prob = self.infer_probabilities(all_features, all_stdev)
 
         # make hidden markov model by iteration over each timestep
