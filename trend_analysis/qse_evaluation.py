@@ -1,75 +1,21 @@
 import os
 import numpy as np
 import pandas as pd
-import matplotlib.pylab as plt
 
 from trend_analysis.qse_engine import GeneralQSE
 from trend_analysis.qse_utils import square_diff, cosine_diff, cross_corr, cross_entropy, classification_error
 
 
-def plot_qse(res, res_gt, coeff_nr, prim_nr, prim, save_path=None, text=None):
-    offset = 2 * coeff_nr + 1
-    state_ranges = [np.arange(offset + prim_nr[0], offset + 2 * prim_nr[0]), np.arange(offset + prim_nr[1], offset + 2 * prim_nr[1])]
-    nr = np.arange(res.shape[0])
-    subplot_nr = 3
-    colors = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9']
-    ratios = [2] + [1] * 2
-
-    # plot signal and filtered signal
-    fig, ax = plt.subplots(nrows=subplot_nr, ncols=1, sharex=True, figsize=(12, 6),
-                           gridspec_kw={'height_ratios': ratios})
-    l1 = ax[0].plot(nr, res[:, 0], 'k-', label='raw SOFI')
-    l2 = ax[0].plot(nr, res[:, 1], 'g-', label='smoothed SOFI')
-    ax[0].set_ylabel('SOFI [-]')
-
-    ax2 = ax[0].twinx()   # add second axis
-    l3 = ax2.plot(nr, res_gt[:, 0], 'r--', label='reference signal')
-    ax2.set_ylabel('level [cm]', color='r')
-    ax2.tick_params('y', colors='r')
-    ax3 = ax2.twinx()
-    ax3.plot(nr, res[:, -1])
-
-    # add legend
-    lns = l1 + l2 + l3
-    labs = [l.get_label() for l in lns]
-    ax[0].legend(lns, labs, loc='lower right')
-    if text is not None:
-        ax[0].text(0.8, 0.95, text, transform=ax[0].transAxes, fontsize=12,
-                      verticalalignment='top', bbox=dict(facecolor='grey', alpha=0.3))
-
-    # plot states probabilities
-    for i, r in enumerate([res, res_gt]):
-        name = 'reference' if i==1 else 'SOFI'
-        axi = ax[i+1]
-        axi.stackplot(nr, *r[:, state_ranges[i]].T, labels=prim[i])
-        axi.set_ylabel(name +' prob. [-]')
-        axi.set_yticks(np.arange(0, 1.5, step=0.5))
-        axi.legend(loc='lower right')
-
-    axi.set_xlabel('Sample index [-]')
-    plt.tight_layout()
-
-    if save_path is not None:
-        plt.savefig(save_path)
-
-    plt.show()
-
-    # # old way of printing
-    # for i, r in enumerate(state_range):
-    #     axi = ax[i+1]
-    #     axi.plot(nr, res[:, r], '-', color=colors[i], label='SOFI trend')
-    #     axi.plot(nr, res_gt[:, r], '--', color=colors[i], label='reference trend')
-    #     axi.set_ylabel('Prob. ' + prim[i])
-    #     axi.set_yticks(np.arange(0, 1.5, step=0.5))
-    #     axi.legend(loc='lower right')
-    # ax[prim_nr].set_xlabel('Sample index [-]')
-
-
-def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=10):
+def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=40):
+    epsi = 0.000001
+    trans = [['Q0', 'Q0', 0.50], ['Q0', 'L', epsi], ['Q0', 'U', 0.50], ['Q0', 'F+', epsi],
+                 ['L', 'Q0', 0.33], ['L', 'L', 0.33], ['L', 'U', epsi], ['L', 'F+', 0.33],
+                 ['U', 'Q0', epsi], ['U', 'L', epsi], ['U', 'U', 0.50], ['U', 'F+', 0.50],
+                 ['F+', 'Q0', epsi], ['F+', 'L', 0.33], ['F+', 'U', 0.33], ['F+', 'F+', 0.33]]
 
     bw_opt_sens = dict(n_support=bw_ref, min_support=40, max_support=400, ici_span=4.4, rel_threshold=0.85, irls=False)
-    qse_sens = GeneralQSE(kernel='tricube', order=3, delta=0.05, transitions=p['trans'], bw_estimation='fix',
-                          bw_options=bw_opt_sens)
+    qse_sens = GeneralQSE(kernel='tricube', order=3, delta=[0.05, 0.03, 0], sigma_eps='auto', transitions=trans,
+                          bw_estimation='fix', bw_options=bw_opt_sens)
 
     bw_opt_sofi = dict(n_support=p['bw'], min_support=p['min_sup'], max_support=p['max_sup'],
                        ici_span=p['ici'], rel_threshold=p['rel_th'], irls=p['irls'])
@@ -83,7 +29,6 @@ def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=10):
     # calculate difference
     coeff_nr = qse_sofi.coeff_nr
     prim_nrs = [qse_sofi.prim_nr, qse_sens.prim_nr]
-    prims = [qse_sofi.primitives, qse_sens.primitives]
     sig_sens = res_sens[:, 1]
     sig_sofi = res_sofi[:, 1]
     feat_sens = res_sens[:, 1 + 2 * coeff_nr + prim_nrs[1]:2 * coeff_nr + 2 * prim_nrs[1] + 1]
@@ -94,15 +39,59 @@ def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=10):
     ac = classification_error(feat_sofi, feat_sens)
     square_diff(feat_sofi, feat_sens)
     cosine_diff(feat_sofi, feat_sens, axis=1)
-    cosine_diff(feat_sofi, feat_sens, axis=0)
 
     # plot results
-    textstr = 'cross entropy$=%.2f$\naccuracy$=%.2f$' % (ce, ac)
-    # qse_sens.plot(res_sens)
-    # qse_sofi.plot(res_sofi)
-    plot_qse(res_sofi, res_sens, coeff_nr, prim_nrs, prims, text=textstr, save_path=store)
+    text_str = 'cross entropy$=%.2f$\naccuracy$=%.2f$' % (ce, ac)
+    qse_sofi.plot(res_sofi, res_sens, text=text_str, save_path=store, plot_prim_prob=False, plot_bw=True)
 
     return ce, ac
+
+def create_scenarios():
+    # setup and initialization with tunning parameters
+    epsi = 0.000001
+
+    transLU = [['L', 'L', 0.5], ['L', 'U', 0.5],
+               ['U', 'L', 0.5], ['U', 'U', 0.5], ['F+', 'F+', 0.0], ['Q0', 'Q0', 0.0]]
+
+    transLUFQ = [['Q0', 'Q0', 0.50], ['Q0', 'L', epsi], ['Q0', 'U', 0.50], ['Q0', 'F+', epsi],
+                 ['L', 'Q0', 0.33], ['L', 'L', 0.33], ['L', 'U', epsi], ['L', 'F+', 0.33],
+                 ['U', 'Q0', epsi], ['U', 'L', epsi], ['U', 'U', 0.50], ['U', 'F+', 0.50],
+                 ['F+', 'Q0', epsi], ['F+', 'L', 0.33], ['F+', 'U', 0.33], ['F+', 'F+', 0.33]]
+
+    stay = 10  # how much more probable to stay in same primitive
+
+    transLUFQ_s = [['Q0', 'Q0', 0.50 * stay], ['Q0', 'L', epsi], ['Q0', 'U', 0.50], ['Q0', 'F+', epsi],
+                   ['L', 'Q0', 0.33], ['L', 'L', 0.33 * stay], ['L', 'U', epsi], ['L', 'F+', 0.33],
+                   ['U', 'Q0', epsi], ['U', 'L', epsi], ['U', 'U', 0.50 * stay], ['U', 'F+', 0.50],
+                   ['F+', 'Q0', epsi], ['F+', 'L', 0.33], ['F+', 'U', 0.33], ['F+', 'F+', 0.33 * stay]]
+
+    # sc0: tool just up and down and no signal smoothing, standard used in paper without smoothing
+    # sc1: + smoothing
+    # sc2: + primitive flat + delta
+    # sc3: + sigma epsilon est
+    # sc4: + adaptive bandwidht
+    # sc5: + irls
+    # sc6: + stay change in markov state
+    delta_tuned = [0.16, 0.05, 1]
+    ici_tuned = 0.2
+    params = {
+        'sc0': dict(bw=9, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
+                    trans=transLU, sig_e=0.001),
+        'sc1': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
+                    trans=transLU, sig_e=0.001),
+        'sc2': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta_tuned, bw_est='fix',
+                    trans=transLUFQ, sig_e=0.001),
+        'sc3': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta_tuned, bw_est='fix',
+                    trans=transLUFQ, sig_e='auto'),
+        'sc4': dict(bw=200, min_sup=60, max_sup=400, ici=ici_tuned, rel_th=0.85, irls=False, delta=delta_tuned, bw_est='ici',
+                    trans=transLUFQ, sig_e='auto'),
+        'sc5': dict(bw=200, min_sup=60, max_sup=400, ici=ici_tuned, rel_th=0.85, irls=True, delta=delta_tuned, bw_est='ici',
+                    trans=transLUFQ, sig_e='auto'),
+        'sc6': dict(bw=200, min_sup=60, max_sup=400, ici=ici_tuned, rel_th=0.85, irls=True, delta=delta_tuned, bw_est='ici',
+                    trans=transLUFQ_s, sig_e='auto')
+    }
+
+    return params
 
 
 if __name__ == '__main__':
@@ -128,50 +117,7 @@ if __name__ == '__main__':
     # delta = [0.5, 0.3, 0.1, 0.1,      0.5, 0.3, 0.1, 0.1,     0.5, 0.3, 0.1, 0.1]
     # bw_ref = [80, 80, 20, 40,         80, 80, 20, 40,         80, 80, 20, 40]
 
-    # setup and initialization with tunning parameters
-    epsi = 0.000001
-
-    transLU = [['L', 'L', 0.5], ['L', 'U', 0.5],
-               ['U', 'L', 0.5], ['U', 'U', 0.5], ['F', 'F', 0.5]]
-
-    transLUF = [['F', 'F', 0.33], ['F', 'L', 0.33], ['F', 'U', 0.33],
-                ['L', 'F', 0.5], ['L', 'L', 0.5], ['L', 'U', epsi],
-                ['U', 'F', 0.5], ['U', 'L', epsi], ['U', 'U', 0.5]]
-
-    stay = 1  # how much more probable to stay in same primitive
-    transLUF_stay = [['F', 'F', 0.33 * stay], ['F', 'L', 0.33], ['F', 'U', 0.33],
-                     ['L', 'F', 0.50], ['L', 'L', 0.50 * stay], ['L', 'U', epsi],
-                     ['U', 'F', 0.50], ['U', 'L', epsi], ['U', 'U', 0.50 * stay]]
-
-
-    trans = [['Q0', 'Q0', 0.50 * stay], ['Q0', 'L', epsi], ['Q0', 'U', 0.50], ['Q0', 'F+', epsi],
-             ['L', 'Q0', 0.33], ['L', 'L', 0.33 * stay], ['L', 'U', epsi], ['L', 'F+', 0.33],
-             ['U', 'Q0', epsi], ['U', 'L', epsi], ['U', 'U', 0.50 * stay], ['U', 'F+', 0.50],
-             ['F+', 'Q0', epsi], ['F+', 'L', 0.33], ['F+', 'U', 0.33], ['F+', 'F+', 0.33 * stay]]
-
-    # sc0: tool just up and down and no signal smoothing, standard used in paper without smoothing
-    # sc1: + smoothing
-    # sc2: + primitive flat + delta
-    # sc3: + sigma epsilon est
-    # sc4: + adaptive bandwidht
-    # sc5: + irls
-    # sc6: + stay change in markov state
-    params = {
-        'sc0': dict(bw=3, min_sup=1, max_sup=1, ici=4.4, rel_th=0.85, irls=False, delta=0.0, bw_est='fix',
-                    trans=transLU, sig_e=0.001),
-        'sc1': dict(bw=200, min_sup=1, max_sup=1, ici=4.4, rel_th=0.85, irls=False, delta=0.0, bw_est='fix',
-                    trans=transLU, sig_e=0.001),
-        'sc2': dict(bw=200, min_sup=1, max_sup=1, ici=4.4, rel_th=0.85, irls=False, delta=0.05, bw_est='fix',
-                    trans=transLUF, sig_e=0.001),
-        'sc3': dict(bw=200, min_sup=1, max_sup=1, ici=4.4, rel_th=0.85, irls=False, delta=0.07, bw_est='fix',
-                    trans=transLUF, sig_e='auto'),
-        'sc4': dict(bw=200, min_sup=60, max_sup=400, ici=0.2, rel_th=None, irls=False, delta=[0.16, 0.05, 1], bw_est='fix',
-                    trans=trans, sig_e='auto'),
-        'sc5': dict(bw=200, min_sup=60, max_sup=400, ici=4.4, rel_th=0.85, irls=True, delta=0.07, bw_est='ici',
-                    trans=transLUF, sig_e='auto'),
-        'sc6': dict(bw=200, min_sup=60, max_sup=400, ici=4.4, rel_th=0.85, irls=True, delta=0.07, bw_est='ici',
-                    trans=transLUF_stay, sig_e='auto')
-    }
+    params = create_scenarios()
 
     for i, file_name in enumerate(files):  # loop through files
         if i in [0]:
@@ -184,10 +130,10 @@ if __name__ == '__main__':
             y_sens = df['reference level'].values
 
             for sc in params:  # loop through scenarios
-                if sc in ['sc4']:  # ['sc0', 'sc1', 'sc2', 'sc3', 'sc4', 'sc5', 'sc6']:
+                if sc in ['sc0']:  #['sc0', 'sc1', 'sc2', 'sc3', 'sc4', 'sc5', 'sc6']:  #
                     # define figure name
-                    store_name = file_name[:-10] + 'trend_' + sc + '.png'
+                    store_name = file_name[:-10] + 'trend_' + sc
                     store_path = os.path.join(path, store_name)
 
-                    # trend analyis of prediction and reference and calculate differences and plot
-                    ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=40)
+                    # trend analysis of prediction and reference and calculate differences and plot
+                    ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=80)
