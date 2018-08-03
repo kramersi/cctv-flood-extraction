@@ -816,6 +816,7 @@ class GeneralQSE(object):
 
         if save_path is not None:
             plt.savefig(save_path + '_derivatives.pdf', format='pdf', orientation='landscape')
+            plt.close()
         else:
             plt.show(block=True)
 
@@ -823,8 +824,8 @@ class GeneralQSE(object):
 if __name__ == '__main__':
     import os
     import time
-    #path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\02_QualitativeTrendAnalysis\\data"  # windows
-    path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/02_QualitativeTrendAnalysis/data"  # mac
+    path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\02_QualitativeTrendAnalysis\\data"  # windows
+    #path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/02_QualitativeTrendAnalysis/data"  # mac
 
     file_name = 'cam1cam5_intra_0_0.2_0.4__ly4ftr16w2__cam1_0_0.2_0.4.csv'
     file_path = os.path.join(path, file_name)

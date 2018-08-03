@@ -13,6 +13,7 @@ from keras_utils import load_images, store_prediction, f1_loss, load_img_msk_pat
 from keras.models import load_model
 from image_generator import ImageGenerator
 
+
 class CCTVFloodExtraction(object):
 
     cr_win = dict(top=0, left=0, width=640, height=360)
@@ -472,6 +473,10 @@ if __name__ == '__main__':
             'https://www.youtube.com/watch?v=h-nZGDJSLuk',  # lockwitz 12:05
             'https://www.youtube.com/watch?v=1T68t_QKsuc',  # spinerstrasse 0:15
             'https://www.youtube.com/watch?v=hxcnMQn5zCA',  # hamburg 14:03
+
+            'https: // www.youtube.com / watch?v = GhczhkuOEiU'  # different floods to show image segmentation
+            'https: // www.youtube.com / watch?v = 9nZaT8r6qYM'  # harvey parking flood
+            'https: // www.youtube.com / watch?v = y6jByqVX7PE'  # under bridge
             ],
         'names': ['garden', 'garage', 'living_room', 'roll_stairs', 'creek_flood', 'lockwitz', 'spinerstrasse', 'hamburg'],
         'sec': [12*60+22, 19*60+39, 2*60+7, 55, 49, 12*60+5, 12, 14*60+3]
