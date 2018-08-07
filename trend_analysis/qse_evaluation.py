@@ -73,7 +73,9 @@ def create_scenarios():
     # sc5: + irls
     # sc6: + stay change in markov state
     delta_tuned = [0.16, 0.05, 1]
-    ici_tuned1 = 0.4
+    delta_tuned2 = [0.16, 0.01, 1]
+    ici_tuned3 = 0.3
+    ici_tuned1 = 0.2
     ici_tuned2= 0.1
     params = {
         'sc0': dict(bw=9, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
@@ -84,11 +86,11 @@ def create_scenarios():
                     trans=transLUFQ, sig_e=0.01),
         'sc3': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta_tuned, bw_est='fix',
                     trans=transLUFQ, sig_e='auto'),
-        'sc4': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=False, delta=delta_tuned, bw_est='ici',
+        'sc4': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=False, delta=delta_tuned2, bw_est='ici-gcv',
                     trans=transLUFQ, sig_e='auto'),
-        'sc5': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=True, delta=delta_tuned, bw_est='ici',
+        'sc5': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=True, delta=delta_tuned2, bw_est='ici-gcv',
                     trans=transLUFQ, sig_e='auto'),
-        'sc6': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=True, delta=delta_tuned, bw_est='ici',
+        'sc6': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=True, delta=delta_tuned2, bw_est='ici-gcv',
                     trans=transLUFQ_s, sig_e='auto')
     }
 
@@ -101,22 +103,23 @@ def bar_plot_results(ce, acc, labels, save_path=None):
     ind = np.arange(n_vid)
 
     fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(9, 6))
-    width = 0.2         # the width of the bars
+    width = 0.12         # the width of the bars
 
-    for i, sc in enumerate(acc):
-        ax[0].bar(ind + i * width, ce[sc], width)
-        ax[0].set_xticks(ind + width / 2. * n_sc)
-        ax[0].set_xticklabels(labels)
+    for i, sc in enumerate(sorted(acc)):
+        ax[0].bar(ind + i * width, ce[sc], width, align='edge')
+        #ax[0].set_xticks(ind + width / 2. * n_sc)
+        #ax[0].set_xticklabels(labels)
+        ax[0].get_xaxis().set_ticks([])
         ax[0].set_ylabel('Cross Entropy [-]')
 
-        ax[1].bar(ind + i* width, acc[sc], width)
-        ax[1].set_xticks(ind + width / 2. * n_sc)
+        ax[1].bar(ind + i * width, acc[sc], width, align='edge')
+        ax[1].set_xticks(ind + width / 2 * n_sc)
         ax[1].set_xticklabels(labels)
         ax[1].set_ylabel('Accuracy [-]')
 
         ax[0].legend(sorted(acc.keys()))
 
-    plt.tight_layout()
+    plt.tight_layout(h_pad=0.1)
 
     if save_path is not None:
         plt.savefig(os.path.join(save_path, 'QSEComparison.pdf'))
@@ -124,10 +127,10 @@ def bar_plot_results(ce, acc, labels, save_path=None):
     # plt.show()
 
 
-
 if __name__ == '__main__':
     #path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/signal"  # mac
     path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\signal"  # windows
+    s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trend-tests"
 
     files = ['cam1_intra_0_0.2_0.4__ly4ftr16w2__cam1_0_0.2_0.4.csv',
              'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
@@ -153,8 +156,8 @@ if __name__ == '__main__':
     all_ac = {}
     all_ce = {}
     vids = []
-    sel_sc = ['sc0', 'sc1', 'sc2', 'sc3', 'sc4', 'sc5', 'sc6']   # 'sc0', 'sc1', 'sc2','sc3', 'sc4', 'sc5', 'sc6' #
-    sel_vid = [0, 1, 2, 3, 4]
+    sel_sc = ['sc0', 'sc1', 'sc2','sc3', 'sc4', 'sc5', 'sc6']   # 'sc0', 'sc1', 'sc2','sc3', 'sc4', 'sc5', 'sc6' #
+    sel_vid = [0, 1, 2, 3, 4]  # [0, 1, 2, 3, 4]
     for key in params:
         if key in sel_sc:
             all_ac[key] = []
@@ -175,10 +178,10 @@ if __name__ == '__main__':
                 if sc in sel_sc:
                     # define figure name
                     store_name = file_name[:-10] + 'trend_' + sc
-                    store_path = os.path.join(path, store_name)
+                    store_path = os.path.join(s_path, store_name)
                     # trend analysis of prediction and reference and calculate differences and plot
                     ce, ac = ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=80)
                     all_ac[sc].append(ac)
                     all_ce[sc].append(ce)
 
-    bar_plot_results(all_ce, all_ac, tuple(vids), save_path=path)
+    bar_plot_results(all_ce, all_ac, tuple(vids), save_path=s_path)

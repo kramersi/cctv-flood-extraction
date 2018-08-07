@@ -474,11 +474,11 @@ if __name__ == '__main__':
             'https://www.youtube.com/watch?v=1T68t_QKsuc',  # spinerstrasse 0:15
             'https://www.youtube.com/watch?v=hxcnMQn5zCA',  # hamburg 14:03
 
-            'https: // www.youtube.com / watch?v = GhczhkuOEiU'  # different floods to show image segmentation
-            'https: // www.youtube.com / watch?v = 9nZaT8r6qYM'  # harvey parking flood
-            'https: // www.youtube.com / watch?v = y6jByqVX7PE'  # under bridge
+            'https://www.youtube.com/watch?v=GhczhkuOEiU',  # different floods to show image segmentation
+            'https://www.youtube.com/watch?v=9nZaT8r6qYM',  # harvey parking flood
+            'https://www.youtube.com/watch?v=y6jByqVX7PE' # under bridge
             ],
-        'names': ['garden', 'garage', 'living_room', 'roll_stairs', 'creek_flood', 'lockwitz', 'spinerstrasse', 'hamburg'],
+        'names': ['garden', 'garage', 'living_room', 'roll_stairs', 'creek_flood', 'lockwitz', 'spinerstrasse', 'hamburg', 'streetFlood', 'HarveyParking', 'BayouBridge'],
         'sec': [12*60+22, 19*60+39, 2*60+7, 55, 49, 12*60+5, 12, 14*60+3]
     }
     model_name = 'ft_l5b3e200f16_dr075i2res_lr'
@@ -497,18 +497,18 @@ if __name__ == '__main__':
 
     frames = {
         'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5', 'HoustonHarveyGarage', 'HoustonHarveyGarden',
-                 'HamburgFischauktion',],
+                 'HamburgFischauktion', 'HarveyParking', 'BayouBridge', 'StreetFlood', 'LockwitzbachDresden'],
         'roi': [[0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512],
-                [0, 0, 512, 512]],
-        'fps': [1, 1, 15, 15, 15, 15],
+                [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512]],
+        'fps': [1, 1, 15, 15, 15, 15, 15, 15, 15, 10],
         'ref': [os.path.join(file_base, 'frames', 'ChaskaAthleticPark.csv'), 'file_name', 'file_name',
-                os.path.join(file_base, 'frames', 'HoustonHarveyGarage.csv'), None, None]
+                os.path.join(file_base, 'frames', 'HoustonHarveyGarage.csv'), None, None, None, None, None, None]
     }
-    model_name = 'aug_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
+    model_name = 'ft_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i in [0, 1, 2, 3]:
+        if i in [9]:
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
             frame_dir_flood = os.path.join(file_base, 'frames')
             vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
@@ -518,6 +518,13 @@ if __name__ == '__main__':
                                       video_name=name, crop_window=cr_win)
             cfe.run(['extract_trend'], config)
 
+
+    # # iterate over movies
+    # for i, url in enumerate(videos['url']):
+    #     if i in [8, 9, 10]:
+    #         video_file = os.path.join(file_base, 'videos', videos['names'][i] + '.mp4')
+    #         cfe = CCTVFloodExtraction(video_file, model_file)
+    #         cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
 
     # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
     # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')

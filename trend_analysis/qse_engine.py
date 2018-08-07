@@ -466,7 +466,7 @@ class GeneralQSE(object):
 
         """
         # get the max of each feature over time and take a procentage of it, attention to second derivative.
-        deltas = np.nanmax(np.absolute(features), axis=0) * self.delta  # np.nanmax(np.absolute(b), axis=0) * [0.2, self.delta, self.delta]
+        deltas = np.nanmax(np.absolute(features), axis=0) * self.delta + np.nanmin(np.absolute(features), axis=0)  # np.nanmax(np.absolute(b), axis=0) * [0.2, self.delta, self.delta]
 
         # Convert regression coefficients to probabilities for qualitative state, normalised features to use norm.logcdf
         prob_p = norm.logcdf((features - deltas) / stdev)
@@ -552,7 +552,7 @@ class GeneralQSE(object):
     def pmse_gcv(self, bw, signal):
         """
         calculating the predicted regression error if leaving one out cross validation is done. But instead of
-        iterating n times over the signal length by leaving one away, the error is estimated whith the generalised
+        iterating n times over the signal length by leaving one away, the error is estimated with the generalised
         cross validation approximation. Therefore just one iteration is needed per bandwidth estimation.
 
         Args:
@@ -579,6 +579,21 @@ class GeneralQSE(object):
         influence_matrix = (self.regr_basis.dot(proj_matrix))
         trace = self.order
         for i in range(sig_n):
+            residuals = y_stacks.T[:, i] - np.dot(influence_matrix, y_stacks.T[:, i])
+            gcv[i] = 1 / n * np.nansum(residuals ** 2) / (1 - trace / n) ** 2  # Generated cross validation
+
+        return np.max(gcv)
+
+    def gcv_ici(self, signal, bws):
+        sig_n = signal.size
+        gcv = np.full(sig_n, np.nan)
+        trace = self.order
+        for i in range(sig_n):
+            n = bws[i]
+            self.set_bandwidth(n)
+            y_stacks = self.signal_stack(signal)
+            proj_matrix = self.get_projection_matrix()
+            influence_matrix = (self.regr_basis.dot(proj_matrix))
             residuals = y_stacks.T[:, i] - np.dot(influence_matrix, y_stacks.T[:, i])
             gcv[i] = 1 / n * np.nansum(residuals ** 2) / (1 - trace / n) ** 2  # Generated cross validation
 
@@ -700,6 +715,25 @@ class GeneralQSE(object):
             # featrues and stddev of variable bandwidth by applying the relative intersection of confidence intervals (RICI)
             all_features, all_stdev, best_bw = self.ici_method(signal)
 
+        elif self.bw_estimation == 'ici-gcv':
+            tau = np.linspace(0.05, 3, num=10, dtype='int16')
+
+            maxgcv = np.full(len(tau), np.nan)
+            for j, n in enumerate(tau):
+                self.bw_options['ici_span'] = n
+                _, _, best_bw = self.ici_method(signal)
+                maxgcv[j] = self.gcv_ici(signal, best_bw)
+
+            plt.figure()
+            plt.plot(np.array(tau), maxgcv)
+            plt.xlabel('ICI span [#]')
+            plt.ylabel('GCV-Score')
+            plt.show()
+
+            best = tau[np.argmin(maxgcv)]
+            self.bw_options['ici_span'] = best
+            all_features, all_stdev, best_bw = self.ici_method(signal)
+
         # calculate the probabilities out of features and stdev
         all_primitive_prob = self.infer_probabilities(all_features, all_stdev)
 
@@ -815,7 +849,7 @@ class GeneralQSE(object):
         plt.tight_layout()
 
         if save_path is not None:
-            plt.savefig(save_path + '_derivatives.pdf', format='pdf', orientation='landscape')
+            #plt.savefig(save_path + '_derivatives.pdf', format='pdf', orientation='landscape')
             plt.close()
         else:
             plt.show(block=True)
@@ -844,8 +878,8 @@ if __name__ == '__main__':
              ['U',  'Q0', epsi], ['U',  'L', epsi], ['U',  'U', 0.50 * stay], ['U',  'F+', 0.50],
              ['F+', 'Q0', epsi], ['F+', 'L', 0.33], ['F+', 'U', 0.33], ['F+', 'F+', 0.33 * stay]]
 
-    bw_opt = dict(n_support=400, min_support=40, max_support=400, ici_span=3.4, rel_threshold=0.85, irls=False)
-    qse = GeneralQSE(kernel='tricube', order=3, delta=0.05, transitions=trans, bw_estimation='ici', bw_options=bw_opt)
+    bw_opt = dict(n_support=400, min_support=9, max_support=400, ici_span=0.2, rel_threshold=0.85, irls=False)
+    qse = GeneralQSE(kernel='tricube', order=3, delta=[0.16, 0.05, 1], transitions=trans, bw_estimation='ici-gcv', bw_options=bw_opt)
 
     # run algorithms
     t = time.process_time()

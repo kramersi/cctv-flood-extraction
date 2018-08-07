@@ -98,7 +98,7 @@ class UNet(object):
         # img_eq = exposure.equalize_hist(x_norm)
         return x_norm
 
-    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=3, augmentation=True, normalisation=True, base_dir=None, learning_rate=0.01):
+    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=3, augmentation=True, normalisation=True, base_dir=None, save_aug=False, learning_rate=0.01):
         """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
 
             example of defining paths
@@ -115,8 +115,11 @@ class UNet(object):
         # define callbacks
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
         es = EarlyStopping(monitor='val_loss', patience=30)
-        tb = TensorBoard(log_dir=model_dir, write_graph=True) # write_images=True, write_grads=True, histogram_freq=5
+        tb = TensorBoard(log_dir=model_dir, write_graph=True)  # write_images=True, write_grads=True, histogram_freq=5
         lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, verbose=1, min_lr=0.000001)
+
+        # define weights
+        class_weights = {0: 0.5, 1: 0.5}
 
         if base_dir is not None:
             self.model.load_weights(os.path.join(base_dir, 'model.h5'))
@@ -137,15 +140,20 @@ class UNet(object):
 
         path_tr = load_img_msk_paths(train_dir)
         path_va = load_img_msk_paths(valid_dir)
-        aug_path = os.path.join(model_dir, 'augmentations')
 
-        n_tr = len(path_tr)
-        n_va = len(path_va)
+        if save_aug is True:
+            aug_path = os.path.join(model_dir, 'augmentations')
+            if not os.path.exists(aug_path):
+                print('created augmentation dir', aug_path)
+                os.makedirs(aug_path)
+        else:
+            aug_path = None
 
-        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(-8, 8),
-                    width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.7, 1.3),
-                    zoom_range=(0.5, 1.2), grayscale_range=(0.0,1.0), brightness_range=(0.5, 1.5), crop_range=(0.5, 1.5),
-                    blur_range=(0.0, 0.5), shear_range=(-6, 6), prob=0.25)
+
+        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(-4, 4),
+                    width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
+                    zoom_range=(1, 1.2), grayscale_range=(0.0, 1.0), brightness_range=(0.1, 1.5), crop_range=(0, 0),
+                    blur_range=(0.0, 1.0), shear_range=(-6, 6), prob=0.2)
 
         train_generator = ImageGenerator(list(path_tr.keys()), masks=path_tr, batch_size=batch_size, dim=(512, 512), shuffle=True,
                                          normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict)
@@ -215,11 +223,9 @@ class UNet(object):
         # train unet with image_generator
         self.model.fit_generator(train_generator,
                                  validation_data=valid_generator,
-                                 steps_per_epoch=n_tr / batch_size,
-                                 validation_steps=n_va / batch_size,
                                  epochs=epochs,
-                                 verbose=0,
-                                 # callbacks=[mc, tb, es, lr],
+                                 verbose=1,
+                                 callbacks=[mc, tb, es, lr],
                                  use_multiprocessing=False,
                                  workers=4)
         # else:
@@ -229,30 +235,22 @@ class UNet(object):
         #scores = self.model.evaluate_generator(valid_generator, workers=4, verbose=0)
         #print('scores', scores)
 
-    def test(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None, csv_path=None):
+    def test_gen(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None, csv_path=None):
+        path_test = load_img_msk_paths([test_img_dir])
 
+        img_gen = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
         x_va = load_images(os.path.join(test_img_dir, 'images'))
         y_va = load_masks(os.path.join(test_img_dir, 'masks'))
-        self.tr_mean = np.array([69.739, 69.888, 65.160])
-        self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
-
-        if train_dir is not None and self.tr_mean is None:
-            x_tr = load_images(train_dir)
-            self.normalize(x_tr)
-
-        x_va_norm = self.normalize(x_va)
-
-        # pre-process data
         y_va = to_categorical(y_va, self.n_class)
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
 
-        # model = load_model(os.path.join(model_dir, 'model.h5'))
-        p_va = self.model.predict(x_va_norm, batch_size=batch_size, verbose=1)
+        p_va = self.model.predict_generator(generator=img_gen, verbose=1)
+        scores = self.model.evaluate_generator(img_gen, steps=None, max_queue_size=10, workers=1, use_multiprocessing=False, verbose=1)
 
-        scores = self.model.evaluate(x_va_norm, y_va, batch_size=batch_size, verbose=1)
         store_prediction(p_va, x_va, output_dir)
+
         res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
                'Recall': [recall_np(y_va, p_va)], 'Error': [error_np(y_va, p_va)]}
         if csv_path is None:
@@ -280,7 +278,8 @@ class UNet(object):
 
         self.train(model_dir, img_dir, valid_dir, batch_size=2, epochs=20, augmentation=False)
 
-    def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
+    def predict_gen(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
+
         x_va = load_images(os.path.join(img_dir), sort=True, target_size=(512, 512))
         self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
         self.tr_std = np.array([72.98415532, 72.33742881, 71.6508131])
@@ -308,11 +307,11 @@ if __name__ == '__main__':
 
     # for windows
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['ref_l5b3e200f16_dr075i2res_lr', 'ref_l3b3e200f32_dr075i2', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
-    aug = [False, False, True, True]
-    feat = [16, 32, 16, 32, 16]
+    model_names = ['train_test', 'ref_l5b3e200f16_dr075i2res_lr', 'ref_l3b3e200f32_dr075i2', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
+    aug = [True, False, True, True]
+    feat = [32, 32, 16, 32, 16]
     ep = [100, 200, 200, 200, 200]
-    lay = [5, 3, 5, 3, 5]
+    lay = [3, 3, 5, 3, 5]
     drop = [0.75, 0.75, 0.75, 0.75, 0.75]
     bat = [3, 3, 3, 3, 3]
     res = [True, False, True, False, True]
@@ -320,7 +319,7 @@ if __name__ == '__main__':
     # bd = [os.path.join(file_base, 'models', 'ft_l5b3e200f16_dr075i2res_lr'), None, None]
 
     for i, model_name in enumerate(model_names):
-        if i == 2:
+        if i == 0:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
@@ -341,7 +340,7 @@ if __name__ == '__main__':
             valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\validate'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
             test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
 
-            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img_cam1')
+            pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
             if not os.path.isdir(pred_dir_flood):
                 os.mkdir(pred_dir_flood)
 
@@ -371,8 +370,8 @@ if __name__ == '__main__':
             unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
             # unet.model.summary()
 
-            unet.train(model_dir, train_dir_flood, valid_dir_flood, batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], learning_rate=0.001)
-            # unet.test(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
+            unet.train(model_dir, [train_dir_flood], [valid_dir_flood], batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], save_aug=True, learning_rate=0.001)
+            # unet.test_gen(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
             # test_dir = os.path.join(file_base, 'video_masks', '*')
             # for test in glob.glob(test_dir):  # test for all frames in directory
             #     base, tail = os.path.split(test)

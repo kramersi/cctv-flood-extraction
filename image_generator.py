@@ -6,6 +6,8 @@ import imgaug as ia
 from imgaug import augmenters as iaa
 from keras.preprocessing.image import img_to_array, load_img, save_img
 
+from random import randint
+
 
 class ImageGenerator(keras.utils.Sequence):
     """ Generates batches of images as well as the associated labels to detect classes. This generator is passed to the
@@ -40,7 +42,7 @@ class ImageGenerator(keras.utils.Sequence):
     """
     aug_dict = dict(horizontal_flip=0.0, vertical_flip=0.0, rotation_range=0.0,
                     width_shift_range=0.0, height_shift_range=0.0, contrast_range=1.0,
-                    zoom_range=1.0, grayscale_range=0.0, brightness_range=1.0, crop_range=1,
+                    zoom_range=(1.0, 1.0), grayscale_range=0.0, brightness_range=1.0, crop_range=(0, 0),
                     blur_range=0.0, shear_range=0.0, prob=0.25)
 
     def __init__(self, img_paths, masks=None, batch_size=3, dim=(512, 512), n_channels=3, n_classes=2, shuffle=True, normalize=None,
@@ -123,8 +125,8 @@ class ImageGenerator(keras.utils.Sequence):
 
         """
         # Initialization
-        x = np.empty((self.batch_size, *self.dim, self.n_channels))
-        y = np.empty((self.batch_size, *self.dim), dtype=int)
+        x = np.empty((self.batch_size, *self.dim, self.n_channels), dtype=np.uint8)
+        y = np.empty((self.batch_size, *self.dim), dtype=np.uint8)
 
         # Generate data
         for i, img_path in enumerate(img_paths_temp):
@@ -132,11 +134,11 @@ class ImageGenerator(keras.utils.Sequence):
             im = load_img(img_path, target_size=self.dim)
 
             # Store sample
-            x[i, ] = img_to_array(im).astype(np.float32)  # np.load('data/' + ID + '.npy')
+            x[i, ] = img_to_array(im).astype(np.uint8)  # np.load('data/' + ID + '.npy')
 
             if self.masks is not None:
                 msk = load_img(self.masks[img_path])
-                y[i, ] = img_to_array(msk)[:, :, 0].astype(np.int8)
+                y[i, ] = img_to_array(msk)[:, :, 0].astype(np.uint8)
 
         # Augment image and mask
         if self.augmentation is True:
@@ -187,9 +189,11 @@ class ImageGenerator(keras.utils.Sequence):
         y_aug = seq_det.augment_images(y, hooks=ia.HooksImages(activator=activator))
 
         if self.save_to_dir is not None:
-            for p in im_paths:
+            for i, p in enumerate(im_paths):
+
                 base, tail = os.path.split(p)
-                save_dir = os.path.join(self.save_to_dir, tail)
-                save_img(save_dir, x_aug)
+                root, ext = os.path.splitext(tail)
+                save_dir = os.path.join(self.save_to_dir, root + '_' + str(randint(0, 1000)) + ext)
+                save_img(save_dir, x_aug[i, ])
 
         return x_aug, y_aug
