@@ -227,7 +227,7 @@ class CCTVFloodExtraction(object):
         """
         img_gen = ImageGenerator(img_paths, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
 
-        return self.model.predict_generator(generator=img_gen, verbose=1)
+        return self.model.predict_generator(img_gen, verbose=1)
 
     def flood_extraction(self, threshold=0.5, predictions=None):
         """ extract a flood index out of detected pixels in the frames (prediction)
@@ -405,7 +405,7 @@ class CCTVFloodExtraction(object):
         cv2.destroyAllWindows()
         vid.release()
 
-    def run(self, run_types, config, batch_size=300):
+    def run(self, run_types, config, vid_batch=300):
         """ runs the extraction with the defined work_types in batches
 
             Args:
@@ -435,12 +435,12 @@ class CCTVFloodExtraction(object):
 
             self.load_model(create_dir=False)
 
-            for b in range(0, n_img, batch_size):
-                print('Batch: ' + str(int(b/batch_size)) + '/' + str(int(n_img/batch_size)))
-                batch = all_img_paths[b:b + batch_size]
+            for b in range(0, n_img, vid_batch):
+                print('Batch: ' + str(int(b/vid_batch)) + '/' + str(int(n_img/vid_batch)))
+                batch = all_img_paths[b:b + vid_batch]
                 pred = self.predict_images(batch)
                 imgs = load_images(batch)
-                trend[b:b + batch_size] = self.flood_extraction(predictions=pred)
+                trend[b:b + vid_batch] = self.flood_extraction(predictions=pred)
                 print('images predicted')
 
                 self.plot_sofi(trend, ref_path=ref_path)
@@ -496,24 +496,30 @@ if __name__ == '__main__':
     )]
 
     frames = {
-        'name': ['ChaskaAthleticPark', 'FloodX_cam1', 'FloodX_cam5', 'HoustonHarveyGarage', 'HoustonHarveyGarden',
+        'name': ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HoustonHarveyGarden',
                  'HamburgFischauktion', 'HarveyParking', 'BayouBridge', 'StreetFlood', 'LockwitzbachDresden'],
-        'roi': [[0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512],
-                [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512], [0, 0, 512, 512]],
+        'roi': [[0, 150, 512, 285], [115, 140, 397, 142], [0, 130, 512, 270], [40, 115, 472, 285], [0, 0, 512, 512],
+                [0, 0, 512, 512], [20, 250, 492, 150], [5, 220, 500, 180], [0, 0, 512, 512], [0, 0, 512, 512]],
         'fps': [1, 1, 15, 15, 15, 15, 15, 15, 15, 10],
-        'ref': [os.path.join(file_base, 'frames', 'ChaskaAthleticPark.csv'), 'file_name', 'file_name',
-                os.path.join(file_base, 'frames', 'HoustonHarveyGarage.csv'), None, None, None, None, None, None]
+        'ref': [os.path.join(file_base, 'frames', 'AthleticPark.csv'), 'file_name', 'file_name',
+                os.path.join(file_base, 'frames', 'HoustonGarage.csv'), None, None,
+                os.path.join(file_base, 'frames', 'HarveyParking.csv'), os.path.join(file_base, 'frames', 'BayouBridge.csv'),
+                None, None],
+        'model': ['train_test_l5_AthleticPark', 'train_test_l5_FloodXCam1', 'train_test_l5_HoustonGarage', 'train_test_l5',
+                  'train_test_l5', 'train_test_l5_HarveyParking', 'train_test_l5_BayouBridge', 'train_test_l5', 'train_test']
     }
-    model_name = 'ft_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
+    model_name = 'train_test_l5aug'  #'ft_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i in [9]:
+        if i in [0, 1, 2, 3, 6, 7]:
+            #trained_model = model_name + name
+            #model_file = os.path.join(file_base, 'models', trained_model)
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
             frame_dir_flood = os.path.join(file_base, 'frames')
             vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
             ref_path = frames['ref'][i]
-            cr_win = dict(top=frames['roi'][i][0], left=frames['roi'][i][1], width=frames['roi'][i][2], height=frames['roi'][i][3])
+            cr_win = dict(left=frames['roi'][i][0], top=frames['roi'][i][1], width=frames['roi'][i][2], height=frames['roi'][i][3])
             cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir_flood, frame_dir=frame_dir_flood,
                                       video_name=name, crop_window=cr_win)
             cfe.run(['extract_trend'], config)
@@ -521,10 +527,10 @@ if __name__ == '__main__':
 
     # # iterate over movies
     # for i, url in enumerate(videos['url']):
-    #     if i in [8, 9, 10]:
+    #     if i in [10]:
     #         video_file = os.path.join(file_base, 'videos', videos['names'][i] + '.mp4')
     #         cfe = CCTVFloodExtraction(video_file, model_file)
-    #         cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=1000)
+    #         cfe.video2frame(resize_dims=512, keep_aspect=True, max_frames=4000)
 
     # test_dir_elliot = os.path.join(file_base, 'frames', 'elliotCityFlood')
     # test_dir_athletic = os.path.join(file_base, 'frames', 'ChaskaAthleticPark')
@@ -604,3 +610,14 @@ if __name__ == '__main__':
     # cfe.test_k_unet(test_dir_flood, layers=4, features_root=32, channels=3, n_class=2)
     #
     # cfe.predict_k_unet(test_dir_athletic, layers=4, features_root=32, channels=3, n_class=2)
+
+    # parking_path = os.path.join(file_base, 'video_masks', 'HarveyParking', 'validate', 'masks', '*')
+    #
+    # flood_index = {}
+    # threshold = 0.5
+    # for p in glob.glob(parking_path):
+    #     print('path ', p)
+    #     pred = cv2.imread(p)
+    #     p1, p2 = os.path.split(p)
+    #     flood_index[p2] = (pred[:, :, 1] > threshold).sum() / (pred.shape[0] * pred.shape[1])
+    # print(flood_index)

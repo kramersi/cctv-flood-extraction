@@ -46,7 +46,7 @@ class ImageGenerator(keras.utils.Sequence):
                     blur_range=0.0, shear_range=0.0, prob=0.25)
 
     def __init__(self, img_paths, masks=None, batch_size=3, dim=(512, 512), n_channels=3, n_classes=2, shuffle=True, normalize=None,
-                 augmentation=True, save_to_dir=None, aug_dict=aug_dict):
+                 augmentation=False, save_to_dir=None, aug_dict=aug_dict):
         self.dim = dim
         self.batch_size = batch_size
         self.masks = masks
@@ -125,8 +125,8 @@ class ImageGenerator(keras.utils.Sequence):
 
         """
         # Initialization
-        x = np.empty((self.batch_size, *self.dim, self.n_channels), dtype=np.uint8)
-        y = np.empty((self.batch_size, *self.dim), dtype=np.uint8)
+        x = np.zeros((self.batch_size, *self.dim, self.n_channels), dtype=np.uint8)
+        y = np.zeros((self.batch_size, *self.dim), dtype=np.uint8)
 
         # Generate data
         for i, img_path in enumerate(img_paths_temp):
@@ -146,11 +146,11 @@ class ImageGenerator(keras.utils.Sequence):
 
         # Normalize batch images
         if self.normalize is not None:
-            x_norm = self.__data_normalisation(x)
+            x = self.__data_normalisation(x)
 
         y_cat = keras.utils.to_categorical(y, num_classes=self.n_classes)  # transform mask to one-hot encoding
 
-        return x_norm, y_cat
+        return x, y_cat
 
     def __data_normalisation(self, img, hist_eq=False):
         """ normalizing of data, e.g. normalisation or contrast enhancements

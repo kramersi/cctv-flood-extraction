@@ -34,10 +34,10 @@ def load_img_msk_paths(paths):
     for path in paths:
         p_img = glob.glob(os.path.join(path, 'images', '*'))
         p_msk = glob.glob(os.path.join(path, 'masks', '*'))
-        # p_img.sort()
-        # p_msk.sort()
-        p_img.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
-        p_msk.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+        p_img.sort()
+        p_msk.sort()
+        #p_img.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+        #p_msk.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
 
         for im, msk in zip(p_img, p_msk):
             img_mask_paths[im] = msk
@@ -45,8 +45,13 @@ def load_img_msk_paths(paths):
     return img_mask_paths
 
 
-def load_masks(path):
-    files = glob.glob(os.path.join(path, '*'))
+def load_masks(path, sort=False):
+    if isinstance(path, str):
+        files = glob.glob(os.path.join(path, '*'))
+    else:
+        files = path
+    if sort is True:
+        files.sort()
     first_img = load_img(files[0])
 
     n = len(files)
@@ -67,7 +72,8 @@ def load_images(path, sort=False, target_size=None, max_files=200):
     else:
         files = path
     if sort is True:
-        files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+        files.sort()
+        #files.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
     first_img = load_img(files[0])
 
     n = len(files)  # min(len(files), max_files)
@@ -110,6 +116,15 @@ def transform_to_human_mask(predictions, images, class_mapping={0: [0, 0, 0], 1:
         pred_transformed.append(prediction)
 
     return pred_transformed
+
+def overlay_img_mask(mask, img, output_dir, class_mapping = {0: [0, 0, 0], 1: [0, 0, 255]}):
+        # fill prediction with right rgb colors
+        mask = np.repeat(mask[:, :, np.newaxis], 3, axis=-1)
+        for label, rgb in class_mapping.items():
+            mask[mask[:, :, 0] == label] = rgb
+
+        overlay_img = cv2.addWeighted(np.uint8(img), 0.8, np.uint8(mask), 0.5, 0)
+        cv2.imwrite(os.path.join(output_dir), cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
 
 
 def store_prediction(predictions, images, output_dir, overlay=True):

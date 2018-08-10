@@ -124,12 +124,12 @@ class UNet(object):
         if base_dir is not None:
             self.model.load_weights(os.path.join(base_dir, 'model.h5'))
 
-            for layer in self.model.layers[:-34]:
-                layer.trainable = False
+            # for layer in self.model.layers[:-14]:
+            #     layer.trainable = False
 
-            # # Check the trainable status of the individual layers
-            # for layer in self.model.layers:
-            #     print(layer, layer.trainable)
+            # Check the trainable status of the individual layers
+            for layer in self.model.layers:
+                print(layer.name, layer.trainable)
 
         # compile model with optimizer and loss function
         self.model.compile(optimizer=Adam(lr=learning_rate), loss=f1_loss,
@@ -150,10 +150,15 @@ class UNet(object):
             aug_path = None
 
 
-        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(-4, 4),
+        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
                     width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
                     zoom_range=(1, 1.2), grayscale_range=(0.0, 1.0), brightness_range=(0.1, 1.5), crop_range=(0, 0),
                     blur_range=(0.0, 1.0), shear_range=(-6, 6), prob=0.2)
+
+        # aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
+        #                 width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=1.0,
+        #                 zoom_range=(1, 1), grayscale_range=(0.0, 0.0), brightness_range=(1.0, 1.0), crop_range=(0, 0),
+        #                 blur_range=0, shear_range=(0, 0), prob=0.25)
 
         train_generator = ImageGenerator(list(path_tr.keys()), masks=path_tr, batch_size=batch_size, dim=(512, 512), shuffle=True,
                                          normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict)
@@ -238,16 +243,20 @@ class UNet(object):
     def test_gen(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None, csv_path=None):
         path_test = load_img_msk_paths([test_img_dir])
 
-        img_gen = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
-        x_va = load_images(os.path.join(test_img_dir, 'images'))
-        y_va = load_masks(os.path.join(test_img_dir, 'masks'))
-        y_va = to_categorical(y_va, self.n_class)
+        img_gen_norm = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
+        img_gen = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize=None, augmentation=False)
+
+        n = len(img_gen)
+        x_va = np.empty((n, 512, 512, 3))
+        y_va = np.empty((n, 512, 512, 2))
+        for i in range(n):
+            x_va[i, ], y_va[i,] = img_gen[i]
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
 
-        p_va = self.model.predict_generator(generator=img_gen, verbose=1)
-        scores = self.model.evaluate_generator(img_gen, steps=None, max_queue_size=10, workers=1, use_multiprocessing=False, verbose=1)
+        p_va = self.model.predict_generator(generator=img_gen_norm, verbose=1)
+        scores = self.model.evaluate_generator(img_gen_norm, steps=None, max_queue_size=10, workers=1, use_multiprocessing=False, verbose=1)
 
         store_prediction(p_va, x_va, output_dir)
 
@@ -269,7 +278,7 @@ class UNet(object):
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))
 
-        for layer in self.model.layers[:-4]:
+        for layer in self.model.layers[:-15]:
             layer.trainable = False
 
         # Check the trainable status of the individual layers
@@ -306,20 +315,22 @@ if __name__ == '__main__':
     # file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
 
     # for windows
+    tune_vid = ''
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['train_test', 'ref_l5b3e200f16_dr075i2res_lr', 'ref_l3b3e200f32_dr075i2', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
-    aug = [True, False, True, True]
-    feat = [32, 32, 16, 32, 16]
-    ep = [100, 200, 200, 200, 200]
-    lay = [3, 3, 5, 3, 5]
+    model_names = ['train_test_l5_' + tune_vid, 'train_test_l3ref', 'train_test_l3aug', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
+
+    aug = [False, False, True, True]
+    feat = [16, 32, 32, 32, 16]
+    ep = [800, 100, 100, 200, 200]
+    lay = [5, 3, 3, 3, 5]
     drop = [0.75, 0.75, 0.75, 0.75, 0.75]
     bat = [3, 3, 3, 3, 3]
-    res = [True, False, True, False, True]
-    bd = [None, None, None, None, None]
+    res = [True, False, False, False, True]
+    bd = [os.path.join(file_base, 'models', 'train_test_l5_' + tune_vid + 'Top'), None, None, None, None]  #
     # bd = [os.path.join(file_base, 'models', 'ft_l5b3e200f16_dr075i2res_lr'), None, None]
 
     for i, model_name in enumerate(model_names):
-        if i == 0:
+        if i in [0]:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
@@ -339,6 +350,10 @@ if __name__ == '__main__':
             train_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\train' # os.path.join(file_base, 'video_masks', 'floodX_cam1', 'train')
             valid_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\validate'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
             test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
+
+            # paths for finetune
+            train_tune_dir = os.path.join(file_base, 'video_masks', tune_vid, 'train')
+            valid_tune_dir = os.path.join(file_base, 'video_masks', tune_vid, 'validate')
 
             pred_dir_flood = os.path.join(file_base, 'models', model_name, 'test_img')
             if not os.path.isdir(pred_dir_flood):
@@ -370,16 +385,30 @@ if __name__ == '__main__':
             unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
             # unet.model.summary()
 
-            unet.train(model_dir, [train_dir_flood], [valid_dir_flood], batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], save_aug=True, learning_rate=0.001)
+            # unet.train(model_dir, [train_tune_dir], [valid_tune_dir], batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], save_aug=False, learning_rate=0.001)
             # unet.test_gen(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
             # test_dir = os.path.join(file_base, 'video_masks', '*')
+            #
             # for test in glob.glob(test_dir):  # test for all frames in directory
             #     base, tail = os.path.split(test)
             #     pred = os.path.join(model_dir, 'pred_' + tail)
+            #     model_dir = os.path.join(file_base, 'models', model_name + tail)
             #     csv_path = os.path.join(model_dir, tail + '.csv')
             #     test_val = os.path.join(test, 'validate')
             #     if not os.path.isdir(pred):
             #         os.mkdir(pred)
             #
-            #     unet.test(model_dir, test_val, pred, batch_size=3, csv_path=csv_path)
+            #     unet.test_gen(model_dir, test_val, pred, batch_size=3, csv_path=csv_path)
 
+            # script for storing prediction
+            from keras_utils import overlay_img_mask
+            vid_name = 'HoustonGarage'
+            img_path = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'images')
+            msk_path = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'masks')
+            output = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'human_masks')
+
+            im = load_images(img_path)
+            msk = load_masks(msk_path)
+            for nr, (i, m) in enumerate(zip(im, msk)):
+                name = 'human' + str(nr) + '.png'
+                overlay_img_mask(m, i, os.path.join(output, name))
