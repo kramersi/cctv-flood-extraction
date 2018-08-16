@@ -40,10 +40,10 @@ class ImageGenerator(keras.utils.Sequence):
             prob (float): probability (0-1) on how often the augmenters should be used
 
     """
-    aug_dict = dict(horizontal_flip=0.0, vertical_flip=0.0, rotation_range=0.0,
-                    width_shift_range=0.0, height_shift_range=0.0, contrast_range=1.0,
-                    zoom_range=(1.0, 1.0), grayscale_range=0.0, brightness_range=1.0, crop_range=(0, 0),
-                    blur_range=0.0, shear_range=0.0, prob=0.25)
+    aug_dict = dict(horizontal_flip=0.0, vertical_flip=0.0, rotation_range=(0.0, 0.0),
+                     width_shift_range=(0.0, 0.0), height_shift_range=(0.0, 0.0), contrast_range=(1.0, 1.0),
+                     zoom_range=(1.0, 1.0), grayscale_range=(0.0, 0.0), brightness_range=(1.0, 1.0), crop_range=(0, 0),
+                     blur_range=(0.0, 0.0), shear_range=(0.0, 0.0), prob=0.25)
 
     def __init__(self, img_paths, masks=None, batch_size=3, dim=(512, 512), n_channels=3, n_classes=2, shuffle=True, normalize=None,
                  augmentation=False, save_to_dir=None, aug_dict=aug_dict):
@@ -105,7 +105,7 @@ class ImageGenerator(keras.utils.Sequence):
                       sometimes(iaa.ContrastNormalization(a['contrast_range'], name='contrast')),  # change contrast
                       sometimes(iaa.GaussianBlur(sigma=a['blur_range'], name='blur')),  # Adding blur
                       sometimes(iaa.Grayscale(alpha=a['grayscale_range'], name='grayscale')),  # reduce color of image
-                      sometimes(iaa.Multiply(a['brightness_range'], name='brightness'))]  # darker or brighter
+                      sometimes(iaa.Add(a['brightness_range'], name='brightness'))]  # darker or brighter
 
         return iaa.Sequential(augmenters, random_order=True)
 

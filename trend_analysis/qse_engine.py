@@ -667,7 +667,7 @@ class GeneralQSE(object):
 
         return sel_features, sel_stdev, best_bws.T
 
-    def run(self, signal):
+    def run(self, signal, save_ici_path=None):
         """
         Run the QSE algorithme, by iterating over each data point in the signal
 
@@ -716,7 +716,7 @@ class GeneralQSE(object):
             all_features, all_stdev, best_bw = self.ici_method(signal)
 
         elif self.bw_estimation == 'ici-gcv':
-            tau = np.linspace(0.05, 3, num=10, dtype='int16')
+            tau = np.linspace(0.05, 5, num=7)
 
             maxgcv = np.full(len(tau), np.nan)
             for j, n in enumerate(tau):
@@ -728,7 +728,10 @@ class GeneralQSE(object):
             plt.plot(np.array(tau), maxgcv)
             plt.xlabel('ICI span [#]')
             plt.ylabel('GCV-Score')
-            plt.show()
+            if save_ici_path is not None:
+                plt.savefig(save_ici_path + '_ici.pdf', format='pdf')
+            else:
+                plt.show()
 
             best = tau[np.argmin(maxgcv)]
             self.bw_options['ici_span'] = best

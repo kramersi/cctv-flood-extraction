@@ -23,7 +23,7 @@ def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=40):
                           bw_estimation=p['bw_est'], bw_options=bw_opt_sofi)
 
     # run algorithms
-    res_sofi = qse_sofi.run(y_pred)
+    res_sofi = qse_sofi.run(y_pred, save_ici_path=store)
     res_sens = qse_sens.run(y_truth)
 
     # calculate difference
@@ -46,7 +46,7 @@ def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=40):
 
     return ce, ac
 
-def create_scenarios():
+def create_scenarios(delta=[0.16, 0.05,1], ici=0.2):
     # setup and initialization with tunning parameters
     epsi = 0.000001
 
@@ -78,19 +78,19 @@ def create_scenarios():
     ici_tuned1 = 0.2
     ici_tuned2= 0.1
     params = {
-        'sc0': dict(bw=9, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
+        '0 Standard': dict(bw=3, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
                     trans=transLU, sig_e=0.01),
-        'sc1': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
+        '1 Smoothed': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
                     trans=transLU, sig_e=0.01),
-        'sc2': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta_tuned, bw_est='fix',
+        '2 Zero classed': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta, bw_est='fix',
                     trans=transLUFQ, sig_e=0.01),
-        'sc3': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta_tuned, bw_est='fix',
+        '3 Error estimated': dict(bw=200, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=delta, bw_est='fix',
                     trans=transLUFQ, sig_e='auto'),
-        'sc4': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=False, delta=delta_tuned2, bw_est='ici-gcv',
+        '4 Bandwidth adapted': dict(bw=200, min_sup=9, max_sup=400, ici=ici, rel_th=0.85, irls=False, delta=delta, bw_est='ici',
                     trans=transLUFQ, sig_e='auto'),
-        'sc5': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=True, delta=delta_tuned2, bw_est='ici-gcv',
+        '5 Outlier weighted': dict(bw=200, min_sup=9, max_sup=400, ici=ici, rel_th=0.85, irls=True, delta=delta, bw_est='ici',
                     trans=transLUFQ, sig_e='auto'),
-        'sc6': dict(bw=200, min_sup=9, max_sup=400, ici=ici_tuned1, rel_th=0.85, irls=True, delta=delta_tuned2, bw_est='ici-gcv',
+        '6 Markov transitioned': dict(bw=200, min_sup=9, max_sup=400, ici=ici, rel_th=0.85, irls=True, delta=delta, bw_est='ici',
                     trans=transLUFQ_s, sig_e='auto')
     }
 
@@ -106,23 +106,23 @@ def bar_plot_results(ce, acc, labels, save_path=None):
     width = 0.12         # the width of the bars
 
     for i, sc in enumerate(sorted(acc)):
-        ax[0].bar(ind + i * width, ce[sc], width, align='edge')
+        ax[0].bar(ind + i * width, acc[sc], width, align='edge')
         #ax[0].set_xticks(ind + width / 2. * n_sc)
         #ax[0].set_xticklabels(labels)
         ax[0].get_xaxis().set_ticks([])
-        ax[0].set_ylabel('Cross Entropy [-]')
+        ax[0].set_ylabel('Accuracy [-]')
 
-        ax[1].bar(ind + i * width, acc[sc], width, align='edge')
+        ax[1].bar(ind + i * width, ce[sc], width, align='edge')
         ax[1].set_xticks(ind + width / 2 * n_sc)
         ax[1].set_xticklabels(labels)
-        ax[1].set_ylabel('Accuracy [-]')
+        ax[1].set_ylabel('Cross Entropy [-]')
 
-        ax[0].legend(sorted(acc.keys()))
+    lgd = ax[0].legend(sorted(acc.keys()), bbox_to_anchor=(1.23, 1.0), borderaxespad=0)
 
     plt.tight_layout(h_pad=0.1)
 
     if save_path is not None:
-        plt.savefig(os.path.join(save_path, 'QSEComparison.pdf'))
+        plt.savefig(os.path.join(save_path, 'QSEComparison.pdf'), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
     # plt.show()
 
@@ -130,25 +130,35 @@ def bar_plot_results(ce, acc, labels, save_path=None):
 if __name__ == '__main__':
     #path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/signal"  # mac
     path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\signal"  # windows
-    s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trend-tests"
+    s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_l5_finalchange"
 
-    files = ['cam1_intra_0_0.2_0.4__ly4ftr16w2__cam1_0_0.2_0.4.csv',
-             'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
-             'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
-             'ft_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
-             'ft_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
-             'aug_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
-             'aug_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
-             'aug_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
-             'aug_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
-             'ref_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
-             'ref_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
-             'ref_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
-             'ref_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
-             ]
+    if not os.path.isdir(s_path):
+        os.mkdir(s_path)
+
+    videos = ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HarveyParking', 'BayouBridge']
+    models = ['train_test_l5_refaug', 'train_test_l5_aug_reduced', 'train_test_l5_']
+    deltas = [[0.1, 0.04, 1], [0.16, 0.01, 1], [0.2, 0.0002, 1], [0.16, 0.01, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
+    icis = [0.2, 0.2, 0.2, 0.2, 0.2, 0.5]
+    scs = ['sc4', 'sc4', 'sc4', 'sc4', 'sc4', 'sc5']
+    files = [models[1] + '__' + vid + '__signal.csv' for vid in videos]
+
+    # files = ['cam1_intra_0_0.2_0.4__ly4ftr16w2__cam1_0_0.2_0.4.csv',
+    #          'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
+    #          'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
+    #          'ft_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
+    #          'ft_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
+    #          'aug_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
+    #          'aug_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
+    #          'aug_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
+    #          'aug_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
+    #          'ref_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
+    #          'ref_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
+    #          'ref_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
+    #          'ref_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
+    #          ]
 
     # zero_shift = [0, 0, 0.1, 0,    0.15, 0.14, 0.07, 0,        0.15, 0.27, 0.12, 0]
-    de = [0.16, 0.05, 1]
+    #de = [0.16, 0.05, 1]
     #delta1 = [0.2,0.2 , 0.5, 0.5,      0.5, 0.3, 0.1, 0.1,     0.5, 0.3, 0.1, 0.1]
     # bw_ref = [80, 80, 20, 40,         80, 80, 20, 40,         80, 80, 20, 40]
 
@@ -156,8 +166,8 @@ if __name__ == '__main__':
     all_ac = {}
     all_ce = {}
     vids = []
-    sel_sc = ['sc0', 'sc1', 'sc2','sc3', 'sc4', 'sc5', 'sc6']   # 'sc0', 'sc1', 'sc2','sc3', 'sc4', 'sc5', 'sc6' #
-    sel_vid = [0, 1, 2, 3, 4]  # [0, 1, 2, 3, 4]
+    sel_sc = ['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
+    sel_vid = [0, 1, 2, 3, 4, 5]  # [0, 1]
     for key in params:
         if key in sel_sc:
             all_ac[key] = []
@@ -173,6 +183,10 @@ if __name__ == '__main__':
             y_sens = df['reference level'].values
 
             vids.append(file_name.split('__')[1])
+
+            # construct params
+            params = create_scenarios(delta=deltas[i], ici=icis[i])
+            # sel_sc = [scs[i]]
 
             for sc in params:  # loop through scenarios
                 if sc in sel_sc:

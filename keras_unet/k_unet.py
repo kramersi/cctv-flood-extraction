@@ -116,7 +116,7 @@ class UNet(object):
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
         es = EarlyStopping(monitor='val_loss', patience=30)
         tb = TensorBoard(log_dir=model_dir, write_graph=True)  # write_images=True, write_grads=True, histogram_freq=5
-        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, verbose=1, min_lr=0.000001)
+        lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=20, verbose=1, min_lr=0.0000001)
 
         # define weights
         class_weights = {0: 0.5, 1: 0.5}
@@ -150,10 +150,15 @@ class UNet(object):
             aug_path = None
 
 
-        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
-                    width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
-                    zoom_range=(1, 1.2), grayscale_range=(0.0, 1.0), brightness_range=(0.1, 1.5), crop_range=(0, 0),
-                    blur_range=(0.0, 1.0), shear_range=(-6, 6), prob=0.2)
+        # aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
+        #             width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
+        #             zoom_range=(1, 1.2), grayscale_range=(0.0, 1.0), brightness_range=(0.05, 1.25), crop_range=(0, 0),
+        #             blur_range=(0.0, 1.0), shear_range=(0, 0), prob=0.25)
+
+        aug_dict1 = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0.0, 0.0),
+                        width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
+                        zoom_range=(1.0, 1.33), grayscale_range=(0.0, 0.8), brightness_range=(-80, 20),
+                        crop_range=(0, 0), blur_range=(0.0, 1.0), shear_range=(0.0, 0.0), prob=0.2)
 
         # aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
         #                 width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=1.0,
@@ -161,10 +166,10 @@ class UNet(object):
         #                 blur_range=0, shear_range=(0, 0), prob=0.25)
 
         train_generator = ImageGenerator(list(path_tr.keys()), masks=path_tr, batch_size=batch_size, dim=(512, 512), shuffle=True,
-                                         normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict)
+                                         normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict1)
 
         valid_generator = ImageGenerator(list(path_va.keys()), masks=path_va, batch_size=batch_size, dim=(512, 512), shuffle=True,
-                                         normalize='std_norm', augmentation=False)
+                                         normalize='std_norm', augmentation=True, aug_dict=aug_dict1)
 
         # y_tr = load_masks(os.path.join(train_dir, 'masks'))  # load mask arrays
         # x_va = load_images(os.path.join(valid_dir, 'images'))
@@ -317,20 +322,20 @@ if __name__ == '__main__':
     # for windows
     tune_vid = ''
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['train_test_l5_' + tune_vid, 'train_test_l3ref', 'train_test_l3aug', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
+    model_names = ['train_test_l5_refaug', 'train_test_l3f64aug', 'train_test_l3aug', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
 
-    aug = [False, False, True, True]
+    aug = [True, False, True, True]
     feat = [16, 32, 32, 32, 16]
-    ep = [800, 100, 100, 200, 200]
+    ep = [250, 200, 100, 200, 200]
     lay = [5, 3, 3, 3, 5]
     drop = [0.75, 0.75, 0.75, 0.75, 0.75]
-    bat = [3, 3, 3, 3, 3]
+    bat = [8, 8, 3, 3, 3]
     res = [True, False, False, False, True]
-    bd = [os.path.join(file_base, 'models', 'train_test_l5_' + tune_vid + 'Top'), None, None, None, None]  #
+    bd = [None, None, None, None, None]  # os.path.join(file_base, 'models', 'train_test_l5_' + tune_vid + 'Top')
     # bd = [os.path.join(file_base, 'models', 'ft_l5b3e200f16_dr075i2res_lr'), None, None]
 
     for i, model_name in enumerate(model_names):
-        if i in [0]:
+        if i in [1]:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):
@@ -352,6 +357,9 @@ if __name__ == '__main__':
             test_dir_flood = 'E:\\watson_for_trend\\3_select_for_labelling\\dataset__flood_2class\\test'  #os.path.join(file_base, 'video_masks', 'floodX_cam1', 'validate')
 
             # paths for finetune
+            train_dir_further = os.path.join(file_base, 'other_video_masks', 'FurtherYoutube', 'train')
+            valid_dir_further = os.path.join(file_base, 'other_video_masks', 'FurtherYoutube', 'validate')
+
             train_tune_dir = os.path.join(file_base, 'video_masks', tune_vid, 'train')
             valid_tune_dir = os.path.join(file_base, 'video_masks', tune_vid, 'validate')
 
@@ -385,14 +393,15 @@ if __name__ == '__main__':
             unet = UNet(img_shape, root_features=feat[i], layers=lay[i], batch_norm=True, dropout=drop[i], inc_rate=2., residual=res[i])
             # unet.model.summary()
 
-            # unet.train(model_dir, [train_tune_dir], [valid_tune_dir], batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], save_aug=False, learning_rate=0.001)
-            # unet.test_gen(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
+            #unet.train(model_dir, [train_tune_dir], [valid_tune_dir], batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], save_aug=True, learning_rate=0.001)
+            unet.train(model_dir, [train_dir_flood, train_dir_further], [valid_dir_flood, valid_dir_further], batch_size=bat[i], epochs=ep[i], augmentation=aug[i], base_dir=bd[i], save_aug=False, learning_rate=0.001)
+            #unet.test_gen(model_dir, test_dir_flood, pred_dir_flood, batch_size=3)
             # test_dir = os.path.join(file_base, 'video_masks', '*')
-            #
+            # #
             # for test in glob.glob(test_dir):  # test for all frames in directory
             #     base, tail = os.path.split(test)
             #     pred = os.path.join(model_dir, 'pred_' + tail)
-            #     model_dir = os.path.join(file_base, 'models', model_name + tail)
+            #     model_dir = os.path.join(file_base, 'models', model_name)  #  + tail
             #     csv_path = os.path.join(model_dir, tail + '.csv')
             #     test_val = os.path.join(test, 'validate')
             #     if not os.path.isdir(pred):
@@ -401,14 +410,15 @@ if __name__ == '__main__':
             #     unet.test_gen(model_dir, test_val, pred, batch_size=3, csv_path=csv_path)
 
             # script for storing prediction
-            from keras_utils import overlay_img_mask
-            vid_name = 'HoustonGarage'
-            img_path = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'images')
-            msk_path = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'masks')
-            output = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'human_masks')
-
-            im = load_images(img_path)
-            msk = load_masks(msk_path)
-            for nr, (i, m) in enumerate(zip(im, msk)):
-                name = 'human' + str(nr) + '.png'
-                overlay_img_mask(m, i, os.path.join(output, name))
+            # from keras_utils import overlay_img_mask
+            # vid_name = 'FloodXCam1'
+            # img_path = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'images')
+            # msk_path = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'masks')
+            # output = os.path.join(file_base, 'video_masks', vid_name, 'validate', 'human_masks')
+            # if not os.path.isdir(output):
+            #     os.mkdir(output)
+            # im = load_images(img_path)
+            # msk = load_masks(msk_path)
+            # for nr, (i, m) in enumerate(zip(im, msk)):
+            #     name = 'human' + str(nr) + '.png'
+            #     overlay_img_mask(m, i, os.path.join(output, name))

@@ -498,8 +498,8 @@ if __name__ == '__main__':
     frames = {
         'name': ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HoustonHarveyGarden',
                  'HamburgFischauktion', 'HarveyParking', 'BayouBridge', 'StreetFlood', 'LockwitzbachDresden'],
-        'roi': [[0, 150, 512, 285], [115, 140, 397, 142], [0, 130, 512, 270], [40, 115, 472, 285], [0, 0, 512, 512],
-                [0, 0, 512, 512], [20, 250, 492, 150], [5, 220, 500, 180], [0, 0, 512, 512], [0, 0, 512, 512]],
+        'roi': [[100, 160, 310, 200], [115, 140, 397, 142], [0, 130, 512, 270], [40, 115, 472, 285], [0, 0, 512, 512],
+                [0, 0, 512, 512], [20, 250, 492, 150], [5, 250, 500, 180], [0, 0, 512, 512], [0, 0, 512, 512]],
         'fps': [1, 1, 15, 15, 15, 15, 15, 15, 15, 10],
         'ref': [os.path.join(file_base, 'frames', 'AthleticPark.csv'), 'file_name', 'file_name',
                 os.path.join(file_base, 'frames', 'HoustonGarage.csv'), None, None,
@@ -508,11 +508,11 @@ if __name__ == '__main__':
         'model': ['train_test_l5_AthleticPark', 'train_test_l5_FloodXCam1', 'train_test_l5_HoustonGarage', 'train_test_l5',
                   'train_test_l5', 'train_test_l5_HarveyParking', 'train_test_l5_BayouBridge', 'train_test_l5', 'train_test']
     }
-    model_name = 'train_test_l5aug'  #'ft_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
+    model_name = 'train_test_l5_aug_reduced'  #'ft_l5b3e200f16_dr075i2res_lr'  # 'ft_l5b3e200f16_dr075i2res_lr'
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i in [0, 1, 2, 3, 6, 7]:
+        if i in [0, 1, 2, 3, 6, 7]:  #
             #trained_model = model_name + name
             #model_file = os.path.join(file_base, 'models', trained_model)
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
