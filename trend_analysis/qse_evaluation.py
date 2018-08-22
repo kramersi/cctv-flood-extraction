@@ -130,17 +130,17 @@ def bar_plot_results(ce, acc, labels, save_path=None):
 if __name__ == '__main__':
     #path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/signal"  # mac
     path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\signal"  # windows
-    s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_l5_finalchange"
+    s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_report"
 
     if not os.path.isdir(s_path):
         os.mkdir(s_path)
 
     videos = ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HarveyParking', 'BayouBridge']
     models = ['train_test_l5_refaug', 'train_test_l5_aug_reduced', 'train_test_l5_']
-    deltas = [[0.1, 0.04, 1], [0.16, 0.01, 1], [0.2, 0.0002, 1], [0.16, 0.01, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
+    deltas = [[0.1, 0.04, 1], [0.16, 0.01, 1], [0.14, 0.01, 1], [0.16, 0.01, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
     icis = [0.2, 0.2, 0.2, 0.2, 0.2, 0.5]
     scs = ['sc4', 'sc4', 'sc4', 'sc4', 'sc4', 'sc5']
-    files = [models[1] + '__' + vid + '__signal.csv' for vid in videos]
+    files = [models[0] + '__' + vid + '__signal.csv' for vid in videos]
 
     # files = ['cam1_intra_0_0.2_0.4__ly4ftr16w2__cam1_0_0.2_0.4.csv',
     #          'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
@@ -166,8 +166,8 @@ if __name__ == '__main__':
     all_ac = {}
     all_ce = {}
     vids = []
-    sel_sc = ['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
-    sel_vid = [0, 1, 2, 3, 4, 5]  # [0, 1]
+    sel_sc = ['4 Bandwidth adapted'] #['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
+    sel_vid = [2]  # [0, 1]
     for key in params:
         if key in sel_sc:
             all_ac[key] = []
@@ -194,7 +194,7 @@ if __name__ == '__main__':
                     store_name = file_name[:-10] + 'trend_' + sc
                     store_path = os.path.join(s_path, store_name)
                     # trend analysis of prediction and reference and calculate differences and plot
-                    ce, ac = ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=80)
+                    ce, ac = ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=120)
                     all_ac[sc].append(ac)
                     all_ce[sc].append(ce)
 

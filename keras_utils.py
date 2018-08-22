@@ -34,10 +34,10 @@ def load_img_msk_paths(paths):
     for path in paths:
         p_img = glob.glob(os.path.join(path, 'images', '*'))
         p_msk = glob.glob(os.path.join(path, 'masks', '*'))
-        p_img.sort()
-        p_msk.sort()
-        # p_img.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
-        # p_msk.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+        # p_img.sort()
+        # p_msk.sort()
+        p_img.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
+        p_msk.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
 
         for im, msk in zip(p_img, p_msk):
             img_mask_paths[im] = msk

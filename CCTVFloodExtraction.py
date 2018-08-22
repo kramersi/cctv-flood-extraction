@@ -512,7 +512,7 @@ if __name__ == '__main__':
     model_file = os.path.join(file_base, 'models', model_name)
 
     for i, name in enumerate(frames['name']):
-        if i in [0, 1, 2, 3, 6, 7]:  #
+        if i in [2]:  # [0, 1, 2, 3, 6, 7]
             #trained_model = model_name + name
             #model_file = os.path.join(file_base, 'models', trained_model)
             pred_dir_flood = os.path.join(file_base, 'predictions', model_name)

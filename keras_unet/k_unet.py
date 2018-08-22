@@ -322,20 +322,19 @@ if __name__ == '__main__':
     # for windows
     tune_vid = ''
     file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    model_names = ['train_test_l5_refaug', 'train_test_l3f64aug', 'train_test_l3aug', 'augnew_l5b3e200f16_dr075i2res_lr', 'aug_l3b3e200f32_dr075i2', 'ft_l5b3e200f16_dr075i2res_lr']
-
-    aug = [True, False, True, True]
-    feat = [16, 32, 32, 32, 16]
-    ep = [250, 200, 100, 200, 200]
-    lay = [5, 3, 3, 3, 5]
-    drop = [0.75, 0.75, 0.75, 0.75, 0.75]
-    bat = [8, 8, 3, 3, 3]
-    res = [True, False, False, False, True]
-    bd = [None, None, None, None, None]  # os.path.join(file_base, 'models', 'train_test_l5_' + tune_vid + 'Top')
+    model_names = ['train_test_l5_refaug', 'train_test_l3f64aug', 'gentrain_l2f128aug', 'gentrain_l4f32aug_res', 'gentrain_l5f16aug', 'gentrain_l6f8aug_res']
+    aug = [True, False, True, True, True, True]
+    feat = [16, 32, 128, 32, 16, 8]
+    ep = [250, 200, 200, 200, 200, 200]
+    lay = [5, 3, 2, 4, 5, 6]
+    drop = [0.75, 0.75, 0.75, 0.75, 0.75, 0.75]
+    bat = [8, 8, 2, 4, 8, 6]
+    res = [True, False, False, True, False, True]
+    bd = [None, None, None, None, None, None]  # os.path.join(file_base, 'models', 'train_test_l5_' + tune_vid + 'Top')
     # bd = [os.path.join(file_base, 'models', 'ft_l5b3e200f16_dr075i2res_lr'), None, None]
 
     for i, model_name in enumerate(model_names):
-        if i in [1]:
+        if i in [3, 5]:
             model_dir = os.path.join(file_base, 'models', model_name)
 
             if not os.path.isdir(model_dir):

@@ -34,6 +34,7 @@ If not, see <http://www.gnu.org/licenses/>.
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+import matplotlib
 import matplotlib.pylab as plt
 
 
@@ -765,6 +766,11 @@ class GeneralQSE(object):
             text (str): text box can be appended which is shown in first graph on top left corner (e.g. corr coeff).
 
         """
+        # font settings
+        font = {'family': 'serif', 'size': 12}
+        matplotlib.rc('font', **font)
+
+        # definition of used variables
         offset = 2 * self.coeff_nr + 1  # offset, because first columns are reserved for features, std. dev
         state_range = np.arange(offset + self.prim_nr, offset + 2 * self.prim_nr)  # column index of state probabilities
         prim_range = np.arange(offset, offset + self.prim_nr)  # column index of primitive probabilities
@@ -778,7 +784,7 @@ class GeneralQSE(object):
         subplot_nr += 1 if plot_prim_prob is True else 0
         subplot_nr += 1 if plot_bw is True else 0
 
-        ratios = [2] + [1] * (subplot_nr - 1)  # ratio to make signal plot twice as big as probability plots
+        ratios = [3] + [2] * (subplot_nr - 1)  # ratio to make signal plot on half bigger than probability plots
 
         if self.bw_estimation == 'fix':
             bw_conf = str(self.n_support)
@@ -786,7 +792,7 @@ class GeneralQSE(object):
             bw_conf = str(self.bw_options['min_support']) + '-' + str(self.bw_options['max_support'])
 
         # plot signal and filtered signal
-        fig, ax = plt.subplots(nrows=subplot_nr, ncols=1, sharex=True, figsize=(12, 6),
+        fig, ax = plt.subplots(nrows=subplot_nr, ncols=1, sharex=True, figsize=(12, 7),
                                gridspec_kw={'height_ratios': ratios})
         l1 = ax[idx].plot(nr, memory[:, 0], 'k-', label='Raw')
         l2 = ax[idx].plot(nr, memory[:, 1], 'g-', label='Smoothed, bw=' + bw_conf)
@@ -796,7 +802,7 @@ class GeneralQSE(object):
         if gt is not None:
             ax2 = ax[idx].twinx()  # add second axis
             l3 = ax2.plot(nr, gt[:, 0], 'r--', label='Reference')
-            ax2.set_ylabel('Level [cm]', color='r')
+            ax2.set_ylabel('Level [cm]', color='r', fontsize=12)
             ax2.tick_params('y', colors='r')
 
         # add legend for first subplot
@@ -834,7 +840,7 @@ class GeneralQSE(object):
             axi.legend(loc='lower right')
 
         axi.set_xlabel('Sample index [-]')
-        plt.tight_layout()
+        plt.tight_layout(h_pad=0.1)
 
         if save_path is not None:
             plt.savefig(save_path + '_states.pdf', format='pdf')
@@ -849,10 +855,9 @@ class GeneralQSE(object):
             axi.plot(nr, memory[:, i + 1] - 2 * memory[:, self.coeff_nr+i+1], '--')
             axi.set_ylabel(str(i) + '. Derivative')
         axi.set_xlabel('Sample index [-]')
-        plt.tight_layout()
+        plt.tight_layout(h_pad=0.1)
 
         if save_path is not None:
-            #plt.savefig(save_path + '_derivatives.pdf', format='pdf', orientation='landscape')
             plt.close()
         else:
             plt.show(block=True)
