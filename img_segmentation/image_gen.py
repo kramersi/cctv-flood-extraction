@@ -5,7 +5,6 @@ from skimage import exposure
 import imgaug as ia
 from imgaug import augmenters as iaa
 from keras.preprocessing.image import img_to_array, load_img, save_img
-
 from random import randint
 
 
@@ -64,13 +63,13 @@ class ImageGenerator(keras.utils.Sequence):
             self.seq = self.get_augmentation_sequence()
 
     def __len__(self):
-        """Denotes the number of batches per epoch
+        """ Denotes the number of batches per epoch
 
         """
         return int(np.floor(len(self.img_paths) / self.batch_size))
 
     def __getitem__(self, index):
-        """"Generate one batch of data
+        """" Generate one batch of data
 
         Args:
             index (int): index of first image in batch of all images
@@ -88,6 +87,9 @@ class ImageGenerator(keras.utils.Sequence):
         return x, y
 
     def get_augmentation_sequence(self):
+        """ prepares the image augmentation sequence by means of the aug_dict
+
+        """
         a = self.aug_dict
         sometimes = lambda aug: iaa.Sometimes(a['prob'], aug)
 
@@ -114,11 +116,12 @@ class ImageGenerator(keras.utils.Sequence):
 
         """
         self.indexes = np.arange(len(self.img_paths))
+
         if self.shuffle is True:
             np.random.shuffle(self.indexes)
 
     def __data_generation(self, img_paths_temp):
-        """Generates data containing batch_size samples x : (n_samples, *dim, n_channels)
+        """ Generates data containing batch_size samples x : (n_samples, *dim, n_channels)
 
         Args:
             img_paths_temp (list of str): list of image paths in that batch
@@ -178,7 +181,13 @@ class ImageGenerator(keras.utils.Sequence):
         return img_norm
 
     def __data_augmentation(self, x, y, im_paths):
-        """augments data and labels, if necessary
+        """ augments data and labels, if necessary. Activator is used to restrict certain augmentations only to the
+        images and not the masks
+
+        Args:
+            x (ndarray): batch of images
+            y (ndaray): corresponding batch of masks
+            im_paths (str): if augmetation should be saved, the path of the images is used for knowing name of image.
 
         """
         def activator(images, augmenter, parents, default):

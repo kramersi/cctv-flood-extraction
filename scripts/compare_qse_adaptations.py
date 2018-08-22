@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from trend_analysis.qse_engine import GeneralQSE
-from trend_analysis.qse_utils import square_diff, cosine_diff, cross_corr, cross_entropy, classification_error
+from trend_analysis.qse_utils import square_diff, cosine_diff, cross_entropy, classification_error
 
 
 def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=40):
@@ -29,8 +29,6 @@ def ref_pred_comparison(y_pred, y_truth, p, store=None, bw_ref=40):
     # calculate difference
     coeff_nr = qse_sofi.coeff_nr
     prim_nrs = [qse_sofi.prim_nr, qse_sens.prim_nr]
-    sig_sens = res_sens[:, 1]
-    sig_sofi = res_sofi[:, 1]
     feat_sens = res_sens[:, 1 + 2 * coeff_nr + prim_nrs[1]:2 * coeff_nr + 2 * prim_nrs[1] + 1]
     feat_sofi = res_sofi[:, 1 + 2 * coeff_nr + prim_nrs[0]:2 * coeff_nr + 2 * prim_nrs[0] + 1]
 
@@ -72,11 +70,6 @@ def create_scenarios(delta=[0.16, 0.05,1], ici=0.2):
     # sc4: + adaptive bandwidht
     # sc5: + irls
     # sc6: + stay change in markov state
-    delta_tuned = [0.16, 0.05, 1]
-    delta_tuned2 = [0.16, 0.01, 1]
-    ici_tuned3 = 0.3
-    ici_tuned1 = 0.2
-    ici_tuned2= 0.1
     params = {
         '0 Standard': dict(bw=3, min_sup=1, max_sup=1, ici=None, rel_th=None, irls=False, delta=0.0, bw_est='fix',
                     trans=transLU, sig_e=0.01),
@@ -107,8 +100,6 @@ def bar_plot_results(ce, acc, labels, save_path=None):
 
     for i, sc in enumerate(sorted(acc)):
         ax[0].bar(ind + i * width, acc[sc], width, align='edge')
-        #ax[0].set_xticks(ind + width / 2. * n_sc)
-        #ax[0].set_xticklabels(labels)
         ax[0].get_xaxis().set_ticks([])
         ax[0].set_ylabel('Accuracy [-]')
 
@@ -123,79 +114,58 @@ def bar_plot_results(ce, acc, labels, save_path=None):
 
     if save_path is not None:
         plt.savefig(os.path.join(save_path, 'QSEComparison.pdf'), bbox_extra_artists=(lgd,), bbox_inches='tight')
+    else:
+        plt.show()
 
-    # plt.show()
 
+#path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/signal"  # mac
+path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\signal"  # windows
+s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_report"
 
-if __name__ == '__main__':
-    #path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/signal"  # mac
-    path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\signal"  # windows
-    s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_report"
+if not os.path.isdir(s_path):
+    os.mkdir(s_path)
 
-    if not os.path.isdir(s_path):
-        os.mkdir(s_path)
+videos = ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HarveyParking', 'BayouBridge']
+models = ['train_test_l5_refaug', 'train_test_l5_aug_reduced', 'train_test_l5_']
+deltas = [[0.1, 0.04, 1], [0.16, 0.01, 1], [0.14, 0.01, 1], [0.16, 0.01, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
+icis = [0.2, 0.2, 0.2, 0.2, 0.2, 0.5]
+scs = ['sc4', 'sc4', 'sc4', 'sc4', 'sc4', 'sc5']
+files = [models[0] + '__' + vid + '__signal.csv' for vid in videos]
 
-    videos = ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HarveyParking', 'BayouBridge']
-    models = ['train_test_l5_refaug', 'train_test_l5_aug_reduced', 'train_test_l5_']
-    deltas = [[0.1, 0.04, 1], [0.16, 0.01, 1], [0.14, 0.01, 1], [0.16, 0.01, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
-    icis = [0.2, 0.2, 0.2, 0.2, 0.2, 0.5]
-    scs = ['sc4', 'sc4', 'sc4', 'sc4', 'sc4', 'sc5']
-    files = [models[0] + '__' + vid + '__signal.csv' for vid in videos]
+params = create_scenarios()
+all_ac = {}
+all_ce = {}
+vids = []
+sel_sc = ['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
+sel_vid = [2]  # [0, 1]
 
-    # files = ['cam1_intra_0_0.2_0.4__ly4ftr16w2__cam1_0_0.2_0.4.csv',
-    #          'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
-    #          'ft_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
-    #          'ft_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
-    #          'ft_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
-    #          'aug_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
-    #          'aug_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
-    #          'aug_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
-    #          'aug_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
-    #          'ref_l5b3e200f16_dr075i2res_lr__FloodX_cam1__signal.csv',
-    #          'ref_l5b3e200f16_dr075i2res_lr__FloodX_cam5__signal.csv',
-    #          'ref_l5b3e200f16_dr075i2res_lr__HoustonHarveyGarage__signal.csv',
-    #          'ref_l5b3e200f16_dr075i2res_lr__ChaskaAthleticPark__signal.csv',
-    #          ]
+for key in params:
+    if key in sel_sc:
+        all_ac[key] = []
+        all_ce[key] = []
 
-    # zero_shift = [0, 0, 0.1, 0,    0.15, 0.14, 0.07, 0,        0.15, 0.27, 0.12, 0]
-    #de = [0.16, 0.05, 1]
-    #delta1 = [0.2,0.2 , 0.5, 0.5,      0.5, 0.3, 0.1, 0.1,     0.5, 0.3, 0.1, 0.1]
-    # bw_ref = [80, 80, 20, 40,         80, 80, 20, 40,         80, 80, 20, 40]
+for i, file_name in enumerate(files):  # loop through files
+    if i in sel_vid:
+        file_path = os.path.join(path, file_name)
+        # load data from csv
+        df = pd.read_csv(file_path, sep=',', dtype={'reference level': np.float64})
+        df = df.interpolate()
+        y_sofi = df['extracted sofi'].values
+        y_sens = df['reference level'].values
 
-    params = create_scenarios()
-    all_ac = {}
-    all_ce = {}
-    vids = []
-    sel_sc = ['4 Bandwidth adapted'] #['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
-    sel_vid = [2]  # [0, 1]
-    for key in params:
-        if key in sel_sc:
-            all_ac[key] = []
-            all_ce[key] = []
+        vids.append(file_name.split('__')[1])
 
-    for i, file_name in enumerate(files):  # loop through files
-        if i in sel_vid:
-            file_path = os.path.join(path, file_name)
-            # load data from csv
-            df = pd.read_csv(file_path, sep=',', dtype={'reference level': np.float64})
-            df = df.interpolate()
-            y_sofi = df['extracted sofi'].values
-            y_sens = df['reference level'].values
+        # construct params
+        params = create_scenarios(delta=deltas[i], ici=icis[i])
 
-            vids.append(file_name.split('__')[1])
+        for sc in params:  # loop through scenarios
+            if sc in sel_sc:
+                # define figure name
+                store_name = file_name[:-10] + 'trend_' + sc
+                store_path = os.path.join(s_path, store_name)
+                # trend analysis of prediction and reference and calculate differences and plot
+                ce, ac = ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=120)
+                all_ac[sc].append(ac)
+                all_ce[sc].append(ce)
 
-            # construct params
-            params = create_scenarios(delta=deltas[i], ici=icis[i])
-            # sel_sc = [scs[i]]
-
-            for sc in params:  # loop through scenarios
-                if sc in sel_sc:
-                    # define figure name
-                    store_name = file_name[:-10] + 'trend_' + sc
-                    store_path = os.path.join(s_path, store_name)
-                    # trend analysis of prediction and reference and calculate differences and plot
-                    ce, ac = ref_pred_comparison(y_sofi, y_sens, params[sc], store=store_path, bw_ref=120)
-                    all_ac[sc].append(ac)
-                    all_ce[sc].append(ce)
-
-    bar_plot_results(all_ce, all_ac, tuple(vids), save_path=s_path)
+bar_plot_results(all_ce, all_ac, tuple(vids), save_path=s_path)

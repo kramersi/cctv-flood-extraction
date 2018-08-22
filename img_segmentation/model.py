@@ -97,7 +97,7 @@ class UNet(object):
         # img_eq = exposure.equalize_hist(x_norm)
         return x_norm
 
-    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=3, augmentation=True, normalisation=True, base_dir=None, save_aug=False, learning_rate=0.01):
+    def train(self, model_dir, train_dir, valid_dir, epochs=20, batch_size=3, augmentation=True, normalisation=True, base_dir=None, trainable_index=14, save_aug=False, learning_rate=0.01):
         """ trains a unet instance on keras. With on-line data augmentation to diversify training samples in each batch.
 
             example of defining paths
@@ -105,26 +105,20 @@ class UNet(object):
             model_dir = "E:\\watson_for_trend\\5_train\\cityscape_l5f64c3n8e20\\"
 
         """
-        # seed = 1234  # Provide the same seed and keyword arguments to the fit and flow methods
-
-        # x_tr = load_images(os.path.join(train_dir, 'images'))  # load training pictures in numpy array
-        # shape = x_tr.shape  # pic_nr x width x height x depth
-        # n_train = shape[0]  # len(image_generator)
-
         # define callbacks
         mc = ModelCheckpoint(os.path.join(model_dir, 'model.h5'), save_best_only=True, save_weights_only=False)
         es = EarlyStopping(monitor='val_loss', patience=30)
         tb = TensorBoard(log_dir=model_dir, write_graph=True)  # write_images=True, write_grads=True, histogram_freq=5
         lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=20, verbose=1, min_lr=0.0000001)
 
-        # define weights
+        # define weights (not used now, keras does not support it with segmentation)
         class_weights = {0: 0.5, 1: 0.5}
 
         if base_dir is not None:
             self.model.load_weights(os.path.join(base_dir, 'model.h5'))
 
-            # for layer in self.model.layers[:-14]:
-            #     layer.trainable = False
+            for layer in self.model.layers[:-trainable_index]:
+                layer.trainable = False
 
             # Check the trainable status of the individual layers
             for layer in self.model.layers:
@@ -148,86 +142,17 @@ class UNet(object):
         else:
             aug_path = None
 
-
-        # aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
-        #             width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
-        #             zoom_range=(1, 1.2), grayscale_range=(0.0, 1.0), brightness_range=(0.05, 1.25), crop_range=(0, 0),
-        #             blur_range=(0.0, 1.0), shear_range=(0, 0), prob=0.25)
-
-        aug_dict1 = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0.0, 0.0),
+        # augmentation are defined here and can be changed
+        aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0.0, 0.0),
                         width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=(0.5, 1.5),
                         zoom_range=(1.0, 1.33), grayscale_range=(0.0, 0.8), brightness_range=(-80, 20),
                         crop_range=(0, 0), blur_range=(0.0, 1.0), shear_range=(0.0, 0.0), prob=0.2)
 
-        # aug_dict = dict(horizontal_flip=0.5, vertical_flip=0.0, rotation_range=(0, 0),
-        #                 width_shift_range=(-0.2, 0.2), height_shift_range=(-0.2, 0.2), contrast_range=1.0,
-        #                 zoom_range=(1, 1), grayscale_range=(0.0, 0.0), brightness_range=(1.0, 1.0), crop_range=(0, 0),
-        #                 blur_range=0, shear_range=(0, 0), prob=0.25)
-
         train_generator = ImageGenerator(list(path_tr.keys()), masks=path_tr, batch_size=batch_size, dim=(512, 512), shuffle=True,
-                                         normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict1)
+                                         normalize='std_norm', save_to_dir=aug_path, augmentation=augmentation, aug_dict=aug_dict)
 
         valid_generator = ImageGenerator(list(path_va.keys()), masks=path_va, batch_size=batch_size, dim=(512, 512), shuffle=True,
-                                         normalize='std_norm', augmentation=True, aug_dict=aug_dict1)
-
-        # y_tr = load_masks(os.path.join(train_dir, 'masks'))  # load mask arrays
-        # x_va = load_images(os.path.join(valid_dir, 'images'))
-        # y_va = load_masks(os.path.join(valid_dir, 'masks'))
-        # n_valid = x_va.shape[0]
-
-        # # data normalisation
-        # if normalisation is True:
-        #     x_tr = self.normalize(x_tr)
-        #     x_va = self.normalize(x_va)
-
-        # # create one-hot
-        # y_tr = to_categorical(y_tr, self.n_class)
-        # y_va = to_categorical(y_va, self.n_class)
-
-        # if augmentation:
-        #     data_gen_args = dict(featurewise_center=False,
-        #                          featurewise_std_normalization=False,
-        #                          rotation_range=0,
-        #                          width_shift_range=0.2,
-        #                          height_shift_range=0.2,
-        #                          zoom_range=(0.5, 1),
-        #                          horizontal_flip=True,
-        #                          img_aug=False,
-        #                          fill_mode='reflect')
-        #
-        #     # use affinity transform for masks
-        #     mask_datagen = ImageDataGenerator(**data_gen_args)
-        #
-        #     # add picture worsening on images not on masks
-        #     data_gen_args['img_aug'] = True
-        #     data_gen_args['blur_range'] = (0.0, 1.2)
-        #     # data_gen_args['contrast_range'] = (0.9, 1.1)
-        #     # data_gen_args['grayscale_range'] = (0.0, 0.1)
-        #
-        #     image_datagen = ImageDataGenerator(**data_gen_args)
-        #
-        #     ## fit the augmentation model to the images and masks with the same seed
-        #     image_datagen.fit(x_tr, augment=True, seed=seed)
-        #     mask_datagen.fit(y_tr, augment=True, seed=seed)
-        #     # create image generator for online data augmentation
-        #     aug_path = os.path.join(model_dir, 'augmentations')
-        #     image_generator = image_datagen.flow(
-        #         x_tr,
-        #         batch_size=batch_size,
-        #         shuffle=True,
-        #         seed=seed)
-        #         # save_to_dir=aug_path)
-        #     ## set the parameters for the data to come from (masks)
-        #     mask_generator = mask_datagen.flow(
-        #         y_tr,
-        #         batch_size=batch_size,
-        #         shuffle=True,
-        #         seed=seed)
-        #
-        #     # combine generators into one which yields image and masks
-        #     train_generator = zip(image_generator, mask_generator)
-        #     #train_generator = image_datagen.flow(x_tr, y_tr, batch_size=batch_size, shuffle=True, seed=seed, save_to_dir=aug_path)
-        #     valid_generator = (x_va, y_va)
+                                         normalize='std_norm', augmentation=augmentation, aug_dict=aug_dict)
 
         # train unet with image_generator
         self.model.fit_generator(train_generator,
@@ -237,14 +162,10 @@ class UNet(object):
                                  callbacks=[mc, tb, es, lr],
                                  use_multiprocessing=False,
                                  workers=4)
-        # else:
-        #     self.model.fit(x_tr, y_tr, validation_data=(x_va, y_va), epochs=epochs, batch_size=batch_size,
-        #                    shuffle=True, callbacks=[mc, tb, lr])
 
-        #scores = self.model.evaluate_generator(valid_generator, workers=4, verbose=0)
-        #print('scores', scores)
+        print('Training completed')
 
-    def test_gen(self, model_dir, test_img_dir, output_dir, batch_size=4, train_dir=None, csv_path=None):
+    def test(self, model_dir, test_img_dir, output_dir, csv_path=None):
         path_test = load_img_msk_paths([test_img_dir])
 
         img_gen_norm = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
@@ -266,10 +187,12 @@ class UNet(object):
 
         res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
                'Recall': [recall_np(y_va, p_va)], 'Error': [error_np(y_va, p_va)]}
+
         if csv_path is None:
             pd.DataFrame(res).to_csv(os.path.join(model_dir, 'result.csv'))
         else:
             pd.DataFrame(res).to_csv(os.path.join(csv_path))
+
         print('DICE:      ' + str(f1_np(y_va, p_va)))
         print('IoU:       ' + str(iou_np(y_va, p_va)))
         print('Precision: ' + str(precision_np(y_va, p_va)))
@@ -277,21 +200,8 @@ class UNet(object):
         print('Error:     ' + str(error_np(y_va, p_va)))
         print('Scores:    ', scores)
 
-    def fine_tune(self, model_dir, img_dir, valid_dir):
 
-        self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
-        self.model.load_weights(os.path.join(model_dir, 'model.h5'))
-
-        for layer in self.model.layers[:-15]:
-            layer.trainable = False
-
-        # Check the trainable status of the individual layers
-        for layer in self.model.layers:
-            print(layer, layer.trainable)
-
-        self.train(model_dir, img_dir, valid_dir, batch_size=2, epochs=20, augmentation=False)
-
-    def predict_gen(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
+    def predict(self, model_dir, img_dir, output_dir, batch_size=4, train_dir=None):
 
         x_va = load_images(os.path.join(img_dir), sort=True, target_size=(512, 512))
         self.tr_mean = np.array([69.739934, 69.88847943, 65.16021837])
@@ -304,8 +214,6 @@ class UNet(object):
         # pre-process
         if self.tr_mean is not None:
             x_va_norm = self.normalize(x_va)
-
-        # model = load_model(os.path.join(model_dir, 'model.h5'))
 
         self.model.compile(optimizer=Adam(lr=0.001), loss=f1_loss, metrics=['acc', 'categorical_crossentropy'])
         self.model.load_weights(os.path.join(model_dir, 'model.h5'))

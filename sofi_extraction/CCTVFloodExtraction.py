@@ -14,7 +14,18 @@ from img_segmentation.utils import load_images, f1_loss, transform_to_human_mask
 
 
 class CCTVFloodExtraction(object):
+    """ class which cares for all paths and containes methods for extracting SOFI out of videos
 
+    Args:
+        video_file (str): path to file where video is stored or should be downloaded
+        model_dir (str): path to model directory where keras or tensorflow model is stored
+        frame_dir (str): optional path to frames if already extracted, otherwise directory will be created
+        pred_dir (str): optional path, where prediction should be stored, otherwise dirctory will be created
+        signal_dir (str): path where extracted sofi signal is stored, if not given directory will be created
+        video_name (str): name of video if not directly extracted from video name
+        cro_window (dict): roi window over which sofi should be calculated. (top, left, width, height)
+
+    """
     cr_win = dict(top=0, left=0, width=640, height=360)
 
     def __init__(self, video_file, model_dir, frame_dir=None, pred_dir=None, signal_dir=None, video_name=None, crop_window=cr_win):
@@ -26,7 +37,7 @@ class CCTVFloodExtraction(object):
         self.video_name = video_name if video_name is not None else os.path.splitext(os.path.basename(self.video_file))[0]
 
         self.frame_dir = self.check_create_folder(frame_dir, 'frames', self.video_name)
-        self.pred_dir = self.check_create_folder(pred_dir, 'predictions', self.video_name)
+        self.pred_dir = self.check_create_folder(pred_dir, 'predictions', self.model_name, self.video_name)
         self.signal_dir = self.check_create_folder(signal_dir, 'signal')
 
         self.predictions = []
@@ -34,6 +45,13 @@ class CCTVFloodExtraction(object):
         self.crop_window = crop_window
 
     def check_create_folder(self, output, *folder_names):
+        """ create folder automatically if path is not given
+
+        Args:
+            output (str): path which should be checked
+            folder_names (tuple): additional folders which should be created if output is None
+
+        """
         path = self.video_file
 
         # if none then create diectory on same level as video directory with the folder_name and video name
@@ -50,6 +68,9 @@ class CCTVFloodExtraction(object):
         return output
 
     def extract_level_from_name(self):
+        """ for FloodX experiments the level can be extracted directly on the filename
+
+        """
         images = glob.glob(os.path.join(self.frame_dir, '*'))
         level = []
         for i, im in enumerate(images):
@@ -59,16 +80,20 @@ class CCTVFloodExtraction(object):
             level.append(float(number))
         return np.array(level)
 
-    def import_video(self, url, source='youtube'):
-        # video must be of following formats: mp4 | flv | ogg | webm | mkv | avi
-        if source == 'youtube':
-            from pytube import YouTube
-            yt = YouTube(url)
-            fp = yt.streams.first().download(os.path.dirname(self.video_file))
+    def import_video(self, url):
+        """ import video from youtube url. Video must be of following formats: mp4 | flv | ogg | webm | mkv | avi
 
-            if fp is not None:
-                self.video_file = fp
-                print('video imported and stored in ', fp)
+        Args:
+            url (str): youtube link url
+
+        """
+        from pytube import YouTube
+        yt = YouTube(url)
+        fp = yt.streams.first().download(os.path.dirname(self.video_file))
+
+        if fp is not None:
+            self.video_file = fp
+            print('video imported and stored in ', fp)
 
     def video2frame(self, skip=1, resize_dims=None, mirror=False, keep_aspect=True, max_frames=10, rotate=0):
         """ extract frames out of a video
@@ -309,7 +334,16 @@ class CCTVFloodExtraction(object):
         return df
 
     def initialize_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
+        """ initialize video instance and geometry of it
 
+        Args:
+            video_path (str): path of video, where it should be stored
+            size (tuple): size of images which should be displayed in the video
+            fps (int): frames per second for movie
+            margin (int): margin of video in pixels
+            vid_format (str): format of video (only DIVY is supported)
+
+        """
         # characteristics of movie
         width = 2 * size[1] + margin  # width of whole movie
         height = size[0] * 2 + margin
@@ -324,7 +358,9 @@ class CCTVFloodExtraction(object):
         return vid, geometry
 
     def write_image_to_vid(self, vid, preds, imgs, trend_path, geometry, n_img, b_ini):
+        """ write images to video
 
+        """
         # iterate over each image pair and concatenate toghether and put to video
         for i, (pred, img) in enumerate(zip(preds, imgs)):
             pred = cv2.cvtColor(pred, cv2.COLOR_RGB2BGR)
@@ -377,7 +413,6 @@ class CCTVFloodExtraction(object):
         # define video instance
         fourcc = cv2.VideoWriter_fourcc(*vid_format)
         vid = cv2.VideoWriter(video_path, fourcc, float(fps), (width, height), True)
-        # vid = cv2.VideoWriter(video_path, -1, 1, (width, height))
 
         # iterate over each image pair and concatenate toghether and put to video
         for i, (img_path, p_path) in enumerate(zip(img_paths, pred_paths)):
@@ -429,9 +464,7 @@ class CCTVFloodExtraction(object):
 
             trend_path = os.path.join(self.signal_dir, self.model_name + '__' + self.video_name + '__plot_ts.png')
 
-
-            # ToDo use path of pred dir instead of filebase and make own
-            output_video = os.path.join(self.pred_dir, self.model_name, self.video_name + '_pred.avi')
+            output_video = os.path.join(self.pred_dir + '_pred.avi')
             output_vid, geometry = self.initialize_movie(output_video, fps=20)
 
             self.load_model(create_dir=False)

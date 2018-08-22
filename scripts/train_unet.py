@@ -1,3 +1,7 @@
+"""
+script is used for instatiate a U-Net model and trains with given images in a directory.
+
+"""
 import os
 from img_segmentation.model import UNet
 

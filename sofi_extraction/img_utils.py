@@ -4,8 +4,16 @@ import os
 import glob
 import shutil
 
+
 def resize_keep_aspect(im, desired_size):
-    ## opencv has copyMakeBorder() method which is handy for making borders
+    """ resize a given image to size x size but keeps aspect ratio. A black border is added, if original dimension does
+    not fit the new ratio.
+
+    Args:
+        im (ndarray): image as a numpy array
+        desired_size: lenght of one side of resized image
+
+    """
     old_size = im.shape[:2]  # old_size is in (height, width) format
     ratio = float(desired_size) / max(old_size)
     new_size = tuple([int(x * ratio) for x in old_size])
@@ -23,6 +31,14 @@ def resize_keep_aspect(im, desired_size):
 
 
 def create_zero_mask(file, dim=512, suffix='_label'):
+    """ function for creating a zero mask with a given dimension. Used for negative samples, where no wateris visible
+
+        Args:
+            file: path of file
+            dim: dimension of mask in pixel
+            suffix: possibility to add a suffix to the newly created mask
+
+    """
     im = np.full((dim, dim), 0)
     base, tail = os.path.split(file)
     name = os.path.splitext(tail)[0] + suffix + '.png'
@@ -41,21 +57,19 @@ def convert_images(path, src='jpg', dst='png'):
         cv2.imwrite(file_path + '.' + dst, img)
         os.remove(j)
 
-# defined myself
+
 def move_pics(source, dest):
     for f in glob.glob(source):
         print(f)
         shutil.move(f, dest)
 
 
-# defined myself
 def copy_pics(source, dest):
     for f in glob.glob(source):
         print(f)
         shutil.copy(f, dest)
 
 
-# defined myself
 def rename_pics(source, suffix='_label.png'):
     for img in glob.glob(source):
         base, tail = os.path.split(img)
@@ -71,7 +85,7 @@ def remove_images(path, ext='jpg'):
 
 
 def transform_mask(image, class_mapping=[(1, 0), (2, 0)]):
-    # transform labels with right rgb colors
+    """transform labels with right rgb colors """
     for old, new in class_mapping:
         image[image[:, :, 0] == old] = [new, new, new]
 
@@ -81,33 +95,3 @@ def match_label(img_names, mask_names):
     img_names.sort()
     mask_names.sort()
     return [name for name in img_names if any(n in name for n in mask_names)]
-
-if __name__ == '__main__':
-
-    # paths
-    file_base = 'C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\'
-    src_img = os.path.join(file_base, 'frames', 'floodX_cam5', '*')
-    src_mask = os.path.join(file_base, 'video_masks', 'floodX_cam1', 'masks', '*')
-    dst = os.path.join(file_base, 'video_masks', 'floodX_cam5', 'images')
-
-    # # match label with images
-    # img_names = glob.glob(src_img)
-    # mask_names = glob.glob(src_mask)
-    # msk = [os.path.split(m)[1].split('_')[5] for m in mask_names]
-    # match = match_label(img_names, msk)
-    # for m in match:
-    #     copy_pics(m, dst)
-
-    # changes pictures in directory, outcomment steps, which are not necessary
-    for file in glob.glob(src_mask):
-
-        base, tail = os.path.split(file)
-        name = os.path.splitext(tail)[0]
-        file_path = os.path.join(base, name)  # path without extension
-        ext = 'png'
-
-        im = cv2.imread(file)
-        im = transform_mask(im, class_mapping=[(1, 0), (2, 1)])
-        im = resize_keep_aspect(im, 512)
-        os.remove(file)
-        cv2.imwrite(file_path + '.' + ext, im)  # renamin or changing extension
