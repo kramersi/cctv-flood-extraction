@@ -1,5 +1,5 @@
 import os
-from sofi_extraction import CCTVFloodExtraction
+from sofi_extraction.engine import CCTVFloodExtraction
 
 # for apple
 # file_base = '/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/'
@@ -44,7 +44,7 @@ config = [dict(
 frames = {
     'name': ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HoustonHarveyGarden',
              'HamburgFischauktion', 'HarveyParking', 'BayouBridge', 'StreetFlood', 'LockwitzbachDresden'],
-    'roi': [[100, 160, 310, 200], [115, 140, 397, 142], [0, 130, 512, 270], [40, 115, 472, 285], [0, 0, 512, 512],
+    'roi': [[100, 160, 310, 200], [115, 140, 397, 142], [115, 235, 210, 37], [40, 115, 472, 285], [0, 0, 512, 512],
             [0, 0, 512, 512], [20, 250, 492, 150], [5, 250, 500, 180], [0, 0, 512, 512], [0, 0, 512, 512]],
     'fps': [1, 1, 15, 15, 15, 15, 15, 15, 15, 10],
     'ref': [os.path.join(file_base, 'frames', 'AthleticPark.csv'), 'file_name', 'file_name',
@@ -59,15 +59,15 @@ model_file = os.path.join(file_base, 'models', model_name)
 
 for i, name in enumerate(frames['name']):
     if i in [2]:  # [0, 1, 2, 3, 6, 7]
-        #trained_model = model_name + name
-        #model_file = os.path.join(file_base, 'models', trained_model)
+        # trained_model = model_name + name
+        # model_file = os.path.join(file_base, 'models', trained_model)
         pred_dir_flood = os.path.join(file_base, 'predictions', model_name)
         frame_dir_flood = os.path.join(file_base, 'frames')
         vid_dir_flood = os.path.join(pred_dir_flood, name + '_pred.avi')
         ref_path = frames['ref'][i]
         cr_win = dict(left=frames['roi'][i][0], top=frames['roi'][i][1], width=frames['roi'][i][2], height=frames['roi'][i][3])
         cfe = CCTVFloodExtraction(video_file, model_file, pred_dir=pred_dir_flood, frame_dir=frame_dir_flood,
-                                  video_name=name, crop_window=cr_win)
+                     video_name=name, crop_window=cr_win)
         cfe.run(['extract_trend'], config, ref_path=ref_path)
 
 

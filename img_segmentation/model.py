@@ -165,8 +165,8 @@ class UNet(object):
 
         print('Training completed')
 
-    def test(self, model_dir, test_img_dir, output_dir, csv_path=None):
-        path_test = load_img_msk_paths([test_img_dir])
+    def test(self, model_dir, test_img_dirs, output_dir, csv_path=None):
+        path_test = load_img_msk_paths(test_img_dirs)
 
         img_gen_norm = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
         img_gen = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize=None, augmentation=False)

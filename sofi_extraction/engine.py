@@ -361,10 +361,20 @@ class CCTVFloodExtraction(object):
         """ write images to video
 
         """
+        # geometry of roi
+        top_roi = self.crop_window['top']
+        left_roi = self.crop_window['left']
+        h_roi = self.crop_window['height']
+        w_roi = self.crop_window['width']
+
         # iterate over each image pair and concatenate toghether and put to video
         for i, (pred, img) in enumerate(zip(preds, imgs)):
             pred = cv2.cvtColor(pred, cv2.COLOR_RGB2BGR)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+            # add roi rectangle to prediction
+            cv2.rectangle(pred, (left_roi, top_roi), (left_roi + w_roi, top_roi + h_roi), (0, 0, 255), 5)
+
             # concatenate pictures togehter with black margins
             space_h = np.full((geometry['dim'], geometry['margin'], 3), 0).astype('uint8')
             composition = np.concatenate((img, space_h, pred), axis=1)
@@ -382,62 +392,6 @@ class CCTVFloodExtraction(object):
             vid.write(composition.astype('uint8'))  # write to video instance
 
         return vid
-
-    def create_prediction_movie(self, video_path, size=(512, 512), fps=5, margin=5, vid_format='DIVX'):
-        """ crate a movie by showing images and prediction as well as the trend compared with groundtruth
-
-        """
-        # collect all image paths
-        img_paths = glob.glob(os.path.join(self.frame_dir, '*'))
-        pred_paths = glob.glob(os.path.join(self.pred_dir, '*'))
-
-        img_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
-        pred_paths.sort(key=lambda var: [int(x) if x.isdigit() else x for x in re.findall(r'[^0-9]|[0-9]+', var)])
-
-        plot_name = self.model_name + '__' + self.video_name + '__' + 'plot_ts.png'
-        trend_path = os.path.join(self.signal_dir, plot_name)
-
-        # characteristics of movie
-        width = 2 * size[1] + margin  # width of whole movie
-        height = size[0]
-        line_y1 = size[0] + margin
-        line_y2 = 2 * size[0] + margin
-        n_img = len(img_paths)
-
-        # read trend and resize
-        if trend_path is not None:
-            trend = cv2.imread(trend_path)
-            trend = cv2.resize(trend, (width, height))
-            height = height * 2 + margin
-
-        # define video instance
-        fourcc = cv2.VideoWriter_fourcc(*vid_format)
-        vid = cv2.VideoWriter(video_path, fourcc, float(fps), (width, height), True)
-
-        # iterate over each image pair and concatenate toghether and put to video
-        for i, (img_path, p_path) in enumerate(zip(img_paths, pred_paths)):
-            # read images
-            img = cv2.imread(img_path)
-            img = cv2.resize(img, size)
-            pred = cv2.imread(p_path)
-
-            # concatenate pictures togehter with black margins
-            space_h = np.full((size[1], margin, 3), 0).astype('uint8')
-            composition = np.concatenate((img, space_h, pred), axis=1)
-
-            if trend_path is not None:
-                space_w = np.full((margin, width, 3), 0).astype('uint8')
-                composition = np.concatenate((composition, space_w, trend), axis=0)
-
-                # draw line on trend graph at position x
-                plot_margin = 25
-                line_x = plot_margin + int((width - plot_margin-5) / n_img * i)
-                cv2.line(composition, (line_x, line_y1), (line_x, line_y2), (0, 0, 255), 5)
-
-            vid.write(composition)  # write to video instance
-
-        cv2.destroyAllWindows()
-        vid.release()
 
     def run(self, run_types, config, vid_batch=300, ref_path=None):
         """ runs the extraction with the defined work_types in batches

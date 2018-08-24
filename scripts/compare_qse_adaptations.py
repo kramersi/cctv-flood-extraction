@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+import matplotlib
 import matplotlib.pyplot as plt
 from trend_analysis.qse_engine import GeneralQSE
 from trend_analysis.qse_utils import square_diff, cosine_diff, cross_entropy, classification_error
@@ -91,24 +92,37 @@ def create_scenarios(delta=[0.16, 0.05,1], ici=0.2):
 
 
 def bar_plot_results(ce, acc, labels, save_path=None):
-    n_vid = len(list(ce.values())[0])  # get lenght of value entries
-    n_sc = len(list(ce.keys()))
+    font = {'family': 'serif', 'size': 12}
+    matplotlib.rc('font', **font)
+
+    n_vid = ce.shape[0]  # len(list(ce.values())[0])  # get lenght of value entries
+    n_sc = ce.shape[1]  # len(list(ce.keys()))
     ind = np.arange(n_vid)
 
-    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(9, 6))
+    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(11, 6))
     width = 0.12         # the width of the bars
+    labels = labels + ('All CCTVs', )
+    std_ce = df_ce.std()
+    std_ac = df_ac.std()
 
     for i, sc in enumerate(sorted(acc)):
-        ax[0].bar(ind + i * width, acc[sc], width, align='edge')
-        ax[0].get_xaxis().set_ticks([])
-        ax[0].set_ylabel('Accuracy [-]')
+        error_ac = np.zeros(n_vid)
+        error_ce = np.zeros(n_vid)
+        error_ac[-1] = std_ac[i]
+        error_ce[-1] = std_ce[i]
 
-        ax[1].bar(ind + i * width, ce[sc], width, align='edge')
+        ax[0].bar(ind + i * width, acc[sc], width, align='edge', yerr=error_ac)
+        ax[1].bar(ind + i * width, ce[sc], width, align='edge', yerr=error_ce)
+
+        ax[0].get_xaxis().set_ticks([])
+        ax[0].set_ylabel('Accuracy [-]', fontsize=13)
+
+
         ax[1].set_xticks(ind + width / 2 * n_sc)
         ax[1].set_xticklabels(labels)
-        ax[1].set_ylabel('Cross Entropy [-]')
+        ax[1].set_ylabel('Cross Entropy [-]', fontsize=13)
 
-    lgd = ax[0].legend(sorted(acc.keys()), bbox_to_anchor=(1.23, 1.0), borderaxespad=0)
+    lgd = ax[0].legend(sorted(acc.keys()), bbox_to_anchor=(1.01, 1.0), borderaxespad=0)
 
     plt.tight_layout(h_pad=0.1)
 
@@ -120,24 +134,25 @@ def bar_plot_results(ce, acc, labels, save_path=None):
 
 #path = "/Users/simonkramer/Documents/Polybox/4.Semester/Master_Thesis/03_ImageSegmentation/structure_vidFloodExt/signal"  # mac
 path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\signal"  # windows
-s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_report"
+s_path = "C:\\Users\\kramersi\\polybox\\4.Semester\\Master_Thesis\\03_ImageSegmentation\\structure_vidFloodExt\\trends_report_finetune"
 
 if not os.path.isdir(s_path):
     os.mkdir(s_path)
 
-videos = ['AthleticPark', 'FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'HarveyParking', 'BayouBridge']
+videos = ['FloodXCam1', 'FloodXCam5', 'HoustonGarage', 'AthleticPark', 'HarveyParking', 'BayouBridge']
 models = ['train_test_l5_refaug', 'train_test_l5_aug_reduced', 'train_test_l5_']
-deltas = [[0.1, 0.04, 1], [0.16, 0.01, 1], [0.14, 0.01, 1], [0.16, 0.01, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
+deltas = [[0.16, 0.01, 1], [0.05, 0.02, 1], [0.16, 0.01, 1], [0.1, 0.04, 1], [0.07, 0.03, 1], [0.1, 0.02, 1]]
 icis = [0.2, 0.2, 0.2, 0.2, 0.2, 0.5]
 scs = ['sc4', 'sc4', 'sc4', 'sc4', 'sc4', 'sc5']
-files = [models[0] + '__' + vid + '__signal.csv' for vid in videos]
+files = [models[2] + vid + '__' + vid + '__signal.csv' for vid in videos]
 
 params = create_scenarios()
 all_ac = {}
 all_ce = {}
 vids = []
-sel_sc = ['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
-sel_vid = [2]  # [0, 1]
+#sel_sc = ['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated']  #
+sel_sc =['0 Standard', '1 Smoothed', '2 Zero classed', '3 Error estimated', '4 Bandwidth adapted', '5 Outlier weighted'] # 'Markov transitioned'
+sel_vid = [0, 1, 2, 3, 4, 5]
 
 for key in params:
     if key in sel_sc:
@@ -168,4 +183,14 @@ for i, file_name in enumerate(files):  # loop through files
                 all_ac[sc].append(ac)
                 all_ce[sc].append(ce)
 
-bar_plot_results(all_ce, all_ac, tuple(vids), save_path=s_path)
+
+df_ce = pd.DataFrame(all_ce, index=vids)
+df_ac = pd.DataFrame(all_ac, index=vids)
+
+df_ac.loc['Mean'] = df_ac.mean()
+df_ce.loc['Mean'] = df_ce.mean()
+
+df_ce.to_csv(os.path.join(s_path, 'cross_entropy_data.csv'))
+df_ce.to_csv(os.path.join(s_path, 'accuracy_data.csv'))
+
+bar_plot_results(df_ce, df_ac, tuple(vids), save_path=s_path)
