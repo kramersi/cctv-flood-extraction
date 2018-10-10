@@ -23,7 +23,7 @@ frames = {
         [0, 0, 512, 512],
         [0, 0, 512, 512]
     ],
-    'roi_new': [
+    'roi': [
         [102, 171, 327, 236],
         [275, 136, 174, 62],
         [8, 239, 101, 43],
@@ -48,7 +48,7 @@ file_location = 'Q:\\Abteilungsprojekte\\eng\\SWWData\\SimonKramer\\data_for_mat
 
 for i, vid in enumerate(frames['name']):
     for sc in ['groundtruth', 'basic', 'augmented', 'finetuned']:
-        for img_dir in glob.glob(file_location, vid, sc):
+        for img_dir in glob.glob(os.path.join(file_location, vid, sc, '*')):
 
             # read image
             img = cv2.imread(img_dir)
@@ -59,7 +59,7 @@ for i, vid in enumerate(frames['name']):
             w_roi = frames['roi'][i][2]
             h_roi = frames['roi'][i][3]
 
-            cv2.rectangle(img, (left_roi, top_roi), (left_roi + w_roi, top_roi + h_roi), (0, 0, 255), 5)
+            cv2.rectangle(img, (left_roi, top_roi), (left_roi + w_roi, top_roi + h_roi), (82, 78, 220), 3)
 
             # extract direction of new image added with roi and save it
             base, tail = os.path.split(img_dir)

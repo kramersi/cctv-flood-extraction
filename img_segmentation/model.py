@@ -165,7 +165,7 @@ class UNet(object):
 
         print('Training completed')
 
-    def test(self, model_dir, test_img_dirs, output_dir, csv_path=None):
+    def test(self, model_dir, test_img_dirs, output_dir, csv_path=None, roi=None):
         path_test = load_img_msk_paths(test_img_dirs)
 
         img_gen_norm = ImageGenerator(list(path_test.keys()), masks=path_test, batch_size=1, shuffle=False, normalize='std_norm', augmentation=False)
@@ -184,6 +184,9 @@ class UNet(object):
         scores = self.model.evaluate_generator(img_gen_norm, steps=None, max_queue_size=10, workers=1, use_multiprocessing=False, verbose=1)
 
         store_prediction(p_va, x_va, output_dir)
+        if roi is not None:
+            y_va = y_va[:,roi[1]:(roi[1] + roi[3]), roi[0]:(roi[0] + roi[2]),:]
+            p_va = p_va[:,roi[1]:(roi[1] + roi[3]), roi[0]:(roi[0] + roi[2]),:]
 
         res = {'DICE': [f1_np(y_va, p_va)], 'IoU': [iou_np(y_va, p_va)], 'Precision': [precision_np(y_va, p_va)],
                'Recall': [recall_np(y_va, p_va)], 'Error': [error_np(y_va, p_va)]}
